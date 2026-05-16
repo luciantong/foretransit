@@ -1,0 +1,5 @@
+.env
+data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt
+__pycache__/
+*.pyc
+.DS_Store
