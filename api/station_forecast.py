@@ -112,6 +112,22 @@ def get_station_forecast(stop_id):
     stop_lon  = stop["stop_lon"]
     stop_name = stop["stop_name"]
 
+    # ── Resolve parent stop / location type ──────
+    # GTFS location_type: 0=stop, 1=station, 2=entrance, 3=generic node
+    # If this is a platform or entrance, walk up to the parent station
+    # so the forecast is station-level (e.g. full Bloor-Yonge, not just one platform)
+    location_type  = int(stop.get("location_type", 0)  if pd.notna(stop.get("location_type"))  else 0)
+    parent_station = stop.get("parent_station", None)
+    parent_station = str(int(parent_station)) if pd.notna(parent_station) else None
+
+    if location_type in [2, 3] and parent_station is not None:
+        parent_row = stops_df[stops_df["stop_id"].astype(str) == parent_station]
+        if not parent_row.empty:
+            parent_row = parent_row.iloc[0]
+            stop_lat   = parent_row["stop_lat"]
+            stop_lon   = parent_row["stop_lon"]
+            stop_name  = parent_row["stop_name"]
+
     # 2. Get vehicles near this stop only
     nearby_vehicles = get_vehicles_near_stop(
                             stop_lat, stop_lon)
@@ -200,11 +216,13 @@ def get_station_forecast(stop_id):
 
     # 8. Return to frontend
     return {
-        "stop_id":      stop_id,
-        "stop_name":    stop_name,
-        "lat":          stop_lat,
-        "lon":          stop_lon,
-        "generated_at": now.isoformat(),
+        "stop_id":        stop_id,
+        "stop_name":      stop_name,
+        "location_type":  location_type,   # 0=stop, 1=station, 2=entrance, 3=node
+        "parent_station": parent_station,  # parent stop_id if this is a child stop, else null
+        "lat":            stop_lat,
+        "lon":            stop_lon,
+        "generated_at":   now.isoformat(),
 
         "current": {
             "score":        magi_result["predicted"],
