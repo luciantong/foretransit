@@ -19,7 +19,7 @@ def get_vehicles_near_stop(stop_lat, stop_lon,
         rt_data = json.load(f)
 
     nearby = []
-    for v in rt_data["vehicles"]["vehicle"]:
+    for v in rt_data["data"]["vehicle"]:
         try:
             dist = haversine(
                 stop_lat, stop_lon,

@@ -11,8 +11,8 @@ routes_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/rout
 with open("data/raw/gtfs_realtime/vehicles_latest.json", "r") as f:
     gtfs_rt_data = json.load(f)
 
-vehicles = gtfs_rt_data["vehicles"]["vehicle"]
-capture_time = gtfs_rt_data["captured_at"]
+vehicles = gtfs_rt_data["data"]["vehicle"]
+capture_time = gtfs_rt_data["timestamp"]
 #----- Haverstine distance function - curved distance between two points on a sphere -----
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371 # Earth radius in km
