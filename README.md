@@ -83,7 +83,7 @@ pip install fastapi uvicorn xgboost scikit-learn pandas scipy
 
 ### 3. Download static GTFS data (one time only)
 
-1. Go to https://www.ttc.ca/open-data
+1. Go to https://open.toronto.ca/dataset/merged-gtfs-ttc-routes-and-schedules/
 2. Download **TTC Routes and Schedules (GTFS)**
 3. Unzip and place the contents at:
 
