@@ -300,6 +300,93 @@ print(df[['stop_id', 'stop_name']].head(30))
 
 ---
 
+## Report Visualization
+
+Below is the Python code used to generate the system overview analysis, proving why Toronto's scale and multimodal complexity require locally-calibrated models.
+
+```python
+"""
+TTC System Overview 2024 - Horizontal Bar Chart
+Supports the argument that Toronto's transit delay context requires locally-calibrated models
+due to scale, multimodal complexity, and surface-subway interdependence.
+"""
+
+import matplotlib.pyplot as plt
+import matplotlib.patches mpatches
+import textwrap
+
+# Data Preparation
+categories = [
+    'Total TTC trips (2024)', 'Bus trips', 'Subway rides', 'Streetcar trips',
+    'Conventional bus/streetcar routes', 'Surface routes connecting\nto subway (A.M. rush)',
+    'Subway connections\n(A.M. rush)', 'Streetcar network length'
+]
+values = [423, 204, 181, 35, 173, 167, 272, 308]
+units = ['million', 'million', 'million', 'million', 'routes', 'routes', 'connections', 'km']
+
+colors = [
+    '#2E86AB', '#2E86AB', '#2E86AB', '#2E86AB', # Ridership
+    '#1B7536', '#1B7536', '#1B7536',            # Network structure
+    '#D35400'                                    # Infrastructure
+]
+
+fig, ax = plt.subplots(figsize=(12, 9))
+fig.patch.set_facecolor('white')
+ax.set_facecolor('white')
+
+y_positions = range(len(categories))
+bars = ax.barh(y_positions, values, color=colors, edgecolor='black', linewidth=0.5, height=0.65)
+
+for bar, value, unit in zip(bars, values, units):
+    label_x = bar.get_width() + 5
+    ax.text(label_x, bar.get_y() + bar.get_height()/2, f'{value} {unit}', 
+            va='center', ha='left', fontsize=10, fontweight='medium')
+
+ax.set_yticks(y_positions)
+ax.set_yticklabels(categories, fontsize=10)
+ax.set_xlabel('Value (see units in labels)', fontsize=11, labelpad=10)
+ax.set_ylabel('TTC System Metric', fontsize=11, labelpad=10)
+ax.set_xlim(0, 520)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.xaxis.grid(True, linestyle='--', alpha=0.3)
+ax.set_axisbelow(True)
+ax.invert_yaxis()
+
+fig.suptitle("Why Toronto's Transit Delay Context Is Locally Specific", fontsize=14, fontweight='bold', y=0.96)
+subtitle = ('Note: Values represent different measurement units. Colors indicate metric type:\n'
+            'ridership (blue), network structure (green), infrastructure (orange).')
+fig.text(0.5, 0.91, subtitle, ha='center', va='top', fontsize=9, style='italic', color='#555555', transform=fig.transFigure)
+
+legend_elements = [
+    mpatches.Patch(facecolor='#2E86AB', edgecolor='black', linewidth=0.5, label='Ridership (millions of trips)'),
+    mpatches.Patch(facecolor='#1B7536', edgecolor='black', linewidth=0.5, label='Network structure (routes/connections)'),
+    mpatches.Patch(facecolor='#D35400', edgecolor='black', linewidth=0.5, label='Infrastructure (km)')
+]
+ax.legend(handles=legend_elements, loc='lower right', fontsize=9, framealpha=0.95)
+
+source_text = (
+    "Source: Author's chart based on data from Toronto Transit Commission, Annual Report 2024; "
+    "Toronto Transit Commission, Operating Statistics — 2024; and Toronto Transit Commission, "
+    "'TTC Welcomes 60th Streetcar, Expanding Fleet to 264.' "
+    "Note: trip figures are in millions; routes, connections and kilometres are shown as raw counts."
+)
+wrapped_source = textwrap.fill(source_text, width=115)
+fig.text(0.5, 0.02, wrapped_source, ha='center', va='bottom', fontsize=8, style='italic', color='#333333', transform=fig.transFigure, linespacing=1.3)
+
+plt.tight_layout()
+plt.subplots_adjust(top=0.86, bottom=0.14)
+
+# Saved directly to outputs directory
+plt.savefig('outputs/ttc_system_overview_chart.png', dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+plt.show()
+```
+
+### Generated Output
+![TTC System Overview](outputs/ttc_system_overview_chart.png)
+
+---
+
 ## Academic references
 
 - Chen, A. et al. (2007). *Ordered probit model for transit delay severity prediction.*
