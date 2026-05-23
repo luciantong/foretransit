@@ -85,30 +85,20 @@ def xgboost_predict(features, mode="bus"):
 
     model = load_model(mode)
 
-    # Build feature vector
-    X = pd.DataFrame([{
-        "cumulative_dwell_time": features.get("cumulative_dwell_time", 0),
-        "cumulative_leg_time":   features.get("cumulative_leg_time", 0),
-        "cumulative_stops":      features.get("cumulative_stops", 0),
-        "day_of_week":           features.get("day_of_week", 0),
-        "section_id":            features.get("section_id", 0),
-        "rain_mm":               features.get("rain_mm", 0),
-        "wind_speed":            features.get("wind_speed", 0),
-        "visibility_km":         features.get("visibility_km", 10),
-        "commercial_speed":      features.get("commercial_speed", 20),
-        "occupancy_rate":        features.get("occupancy_rate", 0.5),
-        "schedule_adherence":    features.get("schedule_adherence", 0),
-        "hour_of_day":           features.get("hour_of_day", 12),
-        "is_peak_hour":          features.get("is_peak_hour", 0),
-        "temperature_c":         features.get("temperature_c", 10),
-        "snow_mm":               features.get("snow_mm", 0),
-        "is_holiday":            features.get("is_holiday", 0),
-        "is_special_event":      features.get("is_special_event", 0),
-        "delay_trend":           features.get("delay_trend", 0),
-        "route_historical_avg":  features.get("route_historical_avg", 0)
-    }])
-
+    # ── Must match FEATURES list in train_xgboost.py exactly ──
     try:
+        X = pd.DataFrame([{
+            "cumulative_dwell_time": features.get("cumulative_dwell_time", 0),
+            "cumulative_leg_time":   features.get("cumulative_leg_time", 0),
+            "cumulative_stops":      features.get("cumulative_stops", 0),
+            "day_of_week":           features.get("day_of_week", 0),
+            "section_id":            features.get("section_id", 0),
+            "hour_of_day":           features.get("hour_of_day", 12),
+            "is_sunday":             features.get("is_sunday", 0),
+            "route_type":            {"bus": 3, "streetcar": 0, "subway": 1}.get(
+                                         features.get("mode", "bus"), 3)
+        }])
+
         probs     = model.predict_proba(X)[0]
         predicted = int(np.argmax(probs))
 

@@ -45,7 +45,7 @@ def get_vehicles_near_stop(stop_lat, stop_lon,
         rt_data = json.load(f)
 
     nearby = []
-    for v in rt_data["vehicles"]["vehicle"]:
+    for v in rt_data["data"]["vehicle"]:
         try:
             dist = haversine(
                 stop_lat, stop_lon,
@@ -60,7 +60,7 @@ def get_vehicles_near_stop(stop_lat, stop_lon,
 # ─── Get Current Weather ─────────────────────
 def get_current_weather():
     try:
-        with open("data/weather/weather_latest.json") as f:
+        with open("data/raw/weather/weather_latest.json") as f:
             weather = json.load(f)
         now          = datetime.now()
         current_hour = now.strftime("%Y-%m-%dT%H:00")
@@ -158,6 +158,7 @@ def get_station_forecast(stop_id):
     # 4. Calculate delay per vehicle
     delays = []
     speeds = []
+    arrival_times = []   # used to compute inter-vehicle gap
 
     for v in nearby_vehicles:
         try:
@@ -200,11 +201,26 @@ def get_station_forecast(stop_id):
             delay_seconds  = (
                 now - scheduled_time).total_seconds()
 
+            arrival_times.append(scheduled_time)
+
+            # ── Detect transit mode from route_type ──
+            route_info  = routes_df[
+                routes_df["route_id"].astype(str) == str(route_tag)]
+            route_type  = int(route_info["route_type"].iloc[0]) \
+                          if not route_info.empty else 3
+            if route_type == 1:
+                mode = "subway"
+            elif route_type == 0:
+                mode = "streetcar"
+            else:
+                mode = "bus"
+
             delays.append({
                 "vehicle_id":    v["id"],
                 "route_id":      route_tag,
                 "delay_seconds": round(delay_seconds),
-                "speed_kmh":     speed
+                "speed_kmh":     speed,
+                "mode":          mode
             })
         except:
             continue
@@ -214,14 +230,32 @@ def get_station_forecast(stop_id):
         avg_delay = sum(d["delay_seconds"]
                        for d in delays) / len(delays)
         avg_speed = sum(speeds) / len(speeds) if speeds else 0
+
+        # Gap = time between consecutive scheduled arrivals at this stop
+        # Proxy for headway / bunching pressure
+        if len(arrival_times) >= 2:
+            arrival_times_sorted = sorted(arrival_times)
+            gaps = [
+                (arrival_times_sorted[i+1] - arrival_times_sorted[i]).total_seconds()
+                for i in range(len(arrival_times_sorted) - 1)
+            ]
+            avg_gap = sum(gaps) / len(gaps)
+        else:
+            avg_gap = 0
+
+        # Majority mode wins (most common among matched vehicles)
+        from collections import Counter
+        mode = Counter(d["mode"] for d in delays).most_common(1)[0][0]
     else:
         avg_delay = 0
         avg_speed = 0
+        avg_gap   = 0
+        mode      = "bus"
 
     # 6. Build features for MAGI
     features = {
         "delay_seconds":         avg_delay,
-        "gap_seconds":           avg_speed,
+        "gap_seconds":           avg_gap,          # ← real inter-vehicle gap now
         "cumulative_dwell_time": avg_delay / 60,
         "cumulative_leg_time":   avg_delay / 60,
         "cumulative_stops":      len(delays),
@@ -236,7 +270,7 @@ def get_station_forecast(stop_id):
                                      16 <= now.hour <= 18),
         "is_sunday":             int(now.weekday() == 6),
         "day_of_week":           now.weekday(),
-        "mode":                  "bus"
+        "mode":                  mode              # ← real mode now
     }
 
     # 7. Run MAGI — picks best model
@@ -255,7 +289,9 @@ def get_station_forecast(stop_id):
             "label":        magi_result["label"],
             "color":        magi_result["color"],
             "delay_min":    round(avg_delay / 60, 1),
-            "num_vehicles": len(delays)
+            "num_vehicles": len(delays),
+            "mode":         mode,
+            "gap_min":      round(avg_gap / 60, 1)
         },
 
         "top_factors":     get_top_factors(

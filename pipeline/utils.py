@@ -24,8 +24,8 @@ trips_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/tri
 routes_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt")
 
 gtfs_rt_data = safe_read_json("data/raw/gtfs_realtime/vehicles_latest.json")
-vehicles = gtfs_rt_data.get("vehicles", {}).get("vehicle", [])
-capture_time = gtfs_rt_data.get("captured_at")
+vehicles = gtfs_rt_data.get("data", {}).get("vehicle", [])
+capture_time = gtfs_rt_data.get("timestamp")
 #----- Haverstine distance function - curved distance between two points on a sphere -----
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371 # Earth radius in km

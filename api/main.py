@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from api.cache import get as cache_get, set as cache_set, stats as cache_stats
 import json
 import pandas as pd
 
@@ -141,6 +142,7 @@ def root():
 
 # ─── Station Forecast ─────────────────────────
 # Called when user clicks a station on the map
+# Results cached for 60s so repeated clicks don't re-run MAGI
 @app.get("/station/{stop_id}")
 def station_forecast(stop_id: str):
     try:
@@ -150,7 +152,12 @@ def station_forecast(stop_id: str):
             "error": "Station forecast unavailable. Check GTFS static files and Python dependencies.",
             "details": str(exc),
         }
-    return get_station_forecast(stop_id)
+    cached = cache_get(stop_id)
+    if cached:
+        return {**cached, "cached": True}
+    result = get_station_forecast(stop_id)
+    cache_set(stop_id, result)
+    return {**result, "cached": False}
 
 # ─── Live Vehicles ────────────────────────────
 # Called to animate vehicles on the map
@@ -320,3 +327,8 @@ def get_subway_stops(q: str = "", limit: int = 1200):
             for row in capped.itertuples(index=False)
         ]
     }
+
+# ─── Cache Stats (debug) ──────────────────────
+@app.get("/debug/cache")
+def debug_cache():
+    return cache_stats()
