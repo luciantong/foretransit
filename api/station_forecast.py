@@ -1,16 +1,42 @@
 import pandas as pd
 import json
-from datetime import datetime
-from pipeline.utils import haversine, parse_gtfs_time
+import math
+from datetime import datetime, timedelta
 from models.MAGI import run_magi
 
 # ─── Load Static Data Once ───────────────────
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 
-stops_df      = pd.read_csv(f"{GTFS_PATH}/stops.txt")
-stop_times_df = pd.read_csv(f"{GTFS_PATH}/stop_times.txt")
-trips_df      = pd.read_csv(f"{GTFS_PATH}/trips.txt")
-routes_df     = pd.read_csv(f"{GTFS_PATH}/routes.txt")
+def safe_read_csv(path):
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return None
+
+
+def haversine(lat1, lon1, lat2, lon2):
+    radius_km = 6371
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2) ** 2
+    )
+    return radius_km * 2 * math.asin(math.sqrt(a))
+
+
+def parse_gtfs_time(time_str):
+    h, m, s = map(int, time_str.split(":"))
+    base = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return base + timedelta(hours=h, minutes=m, seconds=s)
+
+
+stops_df = safe_read_csv(f"{GTFS_PATH}/stops.txt")
+stop_times_df = safe_read_csv(f"{GTFS_PATH}/stop_times.txt")
+trips_df = safe_read_csv(f"{GTFS_PATH}/trips.txt")
+routes_df = safe_read_csv(f"{GTFS_PATH}/routes.txt")
 
 # ─── Get Vehicles Near A Stop ────────────────
 def get_vehicles_near_stop(stop_lat, stop_lon,
@@ -101,6 +127,15 @@ def get_top_factors(delay_seconds, weather, speed):
 # ─── Main: Get Station Forecast ──────────────
 # Runs when user clicks a station on the map
 def get_station_forecast(stop_id):
+    warnings = []
+
+    if stops_df is None or trips_df is None:
+        return {
+            "error": "GTFS static files are missing. stops.txt and trips.txt are required.",
+            "details": "Verify files exist under data/raw/gtfs_static/TTC Routes and Schedules Data/",
+        }
+    if stop_times_df is None:
+        warnings.append("stop_times.txt missing: using fallback delay estimate based on nearby vehicles.")
 
     # 1. Get stop info
     stop = stops_df[stops_df["stop_id"] == int(stop_id)]
@@ -129,6 +164,15 @@ def get_station_forecast(stop_id):
             route_tag = v["routeTag"]
             speed     = float(v["speedKmHr"])
             speeds.append(speed)
+
+            if stop_times_df is None:
+                delays.append({
+                    "vehicle_id":    v["id"],
+                    "route_id":      route_tag,
+                    "delay_seconds": 0,
+                    "speed_kmh":     speed
+                })
+                continue
 
             route_trips = trips_df[
                 trips_df["route_id"].astype(str) ==
@@ -218,6 +262,7 @@ def get_station_forecast(stop_id):
                                 avg_delay,
                                 weather,
                                 avg_speed),
+        "warnings":        warnings,
         "weather":         weather,
         "vehicles_nearby": delays,
         "magi":            magi_result

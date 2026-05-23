@@ -3,16 +3,29 @@ import json
 import math
 from datetime import datetime, timedelta
 
-stops_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stops.txt")
-stop_times_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt")
-trips_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/trips.txt")
-routes_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt")
+def safe_read_csv(path):
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
 
-with open("data/raw/gtfs_realtime/vehicles_latest.json", "r") as f:
-    gtfs_rt_data = json.load(f)
 
-vehicles = gtfs_rt_data["vehicles"]["vehicle"]
-capture_time = gtfs_rt_data["captured_at"]
+def safe_read_json(path):
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+stops_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stops.txt")
+stop_times_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt")
+trips_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/trips.txt")
+routes_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt")
+
+gtfs_rt_data = safe_read_json("data/raw/gtfs_realtime/vehicles_latest.json")
+vehicles = gtfs_rt_data.get("vehicles", {}).get("vehicle", [])
+capture_time = gtfs_rt_data.get("captured_at")
 #----- Haverstine distance function - curved distance between two points on a sphere -----
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371 # Earth radius in km
