@@ -3,93 +3,122 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 're
 import { divIcon } from 'leaflet'
 import './App.css'
 
-const API_ROOT = 'http://127.0.0.1:8000'
-const MAP_MIN_ZOOM = 10
-const MAP_MAX_ZOOM = 17
-const STATION_FADE_START_ZOOM = 13.5
-const STATION_LOAD_ZOOM = 15
-const MAX_RENDER_DISTANCE_KM = 1.8
+const API_ROOT = '/api'
+const MAP_RENDER_START_ZOOM = 14
 
-function formatDelay(delayMin) {
-  if (typeof delayMin !== 'number' || Number.isNaN(delayMin)) {
-    return 'N/A'
+function describeFetchError(error, endpointLabel) {
+  if (error instanceof TypeError) {
+    return `Could not reach backend (${endpointLabel}). Start API server on port 8000 and retry.`
   }
-  if (delayMin <= 0) {
-    return 'On time'
+  if (error instanceof Error) {
+    return error.message
   }
-  return `${delayMin.toFixed(1)} min late`
+  return `Request failed for ${endpointLabel}`
 }
 
-function statusClass(health) {
-  return health?.ok ? 'ok' : 'down'
+function formatModelName(name) {
+  if (!name) {
+    return 'none'
+  }
+  if (name === 'xgboost') {
+    return 'XGBoost'
+  }
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
-function ZoomTracker({ onViewChange }) {
-  useMapEvents({
-    zoomend: (event) => onViewChange(event.target.getZoom(), event.target.getCenter()),
-    moveend: (event) => onViewChange(event.target.getZoom(), event.target.getCenter()),
+function modeStyle(mode) {
+  if (mode === 'railway') {
+    return 'railway'
+  }
+  return 'bus'
+}
+
+function edgeFadeOpacity(stop, bounds) {
+  if (!bounds) {
+    return 1
+  }
+
+  const north = bounds.getNorth()
+  const south = bounds.getSouth()
+  const east = bounds.getEast()
+  const west = bounds.getWest()
+
+  const latSpan = Math.max(0.00001, north - south)
+  const lonSpan = Math.max(0.00001, east - west)
+
+  const edgeZoneLat = latSpan * 0.12
+  const edgeZoneLon = lonSpan * 0.12
+
+  const distToLatEdge = Math.min(stop.lat - south, north - stop.lat)
+  const distToLonEdge = Math.min(stop.lon - west, east - stop.lon)
+
+  const latOpacity = Math.min(1, Math.max(0, distToLatEdge / edgeZoneLat))
+  const lonOpacity = Math.min(1, Math.max(0, distToLonEdge / edgeZoneLon))
+
+  return 0.22 + 0.78 * Math.min(latOpacity, lonOpacity)
+}
+
+function stationIcon(stop, isActive, opacity) {
+  const modeClass = modeStyle(stop.mode)
+  const fillClass =
+    modeClass === 'railway'
+      ? stop.is_parent_station === true
+        ? 'is-parent'
+        : 'is-child'
+      : 'is-bus'
+
+  return divIcon({
+    className: 'station-marker',
+    html: `<div class="station-shape station-shape--${modeClass} ${fillClass} ${isActive ? 'is-active' : ''}" style="opacity:${opacity.toFixed(3)}"></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -10],
   })
-
-  return null
 }
 
-function FocusMap({ stop }) {
+function FocusMapOnStop({ stop }) {
   const map = useMap()
 
   useEffect(() => {
     if (!stop || typeof stop.lat !== 'number' || typeof stop.lon !== 'number') {
       return
     }
-
-    map.flyTo([stop.lat, stop.lon], Math.max(map.getZoom(), STATION_LOAD_ZOOM), {
-      duration: 0.5,
-    })
+    map.flyTo([stop.lat, stop.lon], 14, { duration: 0.45 })
   }, [map, stop])
 
   return null
 }
 
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const radiusKm = 6371
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLon = ((lon2 - lon1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2
-  return radiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-function stationIcon(mode, active, opacity) {
-  return divIcon({
-    className: 'station-marker',
-    html: `<div class="station-shape station-shape--${mode} ${active ? 'is-active' : ''}" style="opacity:${opacity};"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-    popupAnchor: [0, -8],
+function MapViewTracker({ onViewChange }) {
+  useMapEvents({
+    moveend: (event) => {
+      const map = event.target
+      onViewChange({
+        zoom: map.getZoom(),
+        center: map.getCenter(),
+        bounds: map.getBounds(),
+      })
+    },
+    zoomend: (event) => {
+      const map = event.target
+      onViewChange({
+        zoom: map.getZoom(),
+        center: map.getCenter(),
+        bounds: map.getBounds(),
+      })
+    },
   })
+
+  return null
 }
 
 function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
   const [query, setQuery] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
-    const searchRef = useRef(null)
-    useEffect(() => {
-      if (!dropdownOpen) return;
-      function handleClick(e) {
-        if (searchRef.current && !searchRef.current.contains(e.target)) {
-          setDropdownOpen(false)
-        }
-      }
-      document.addEventListener('mousedown', handleClick)
-      return () => document.removeEventListener('mousedown', handleClick)
-    }, [dropdownOpen])
   const [stops, setStops] = useState({ loading: true, error: '', items: [] })
-  const [searchResults, setSearchResults] = useState({ loading: false, error: '', items: [] })
-  const [mapZoom, setMapZoom] = useState(11)
-  const [mapCenter, setMapCenter] = useState([43.6532, -79.3832])
-  const [focusStop, setFocusStop] = useState(null)
+  const [results, setResults] = useState({ loading: false, error: '', items: [] })
+  const [mapView, setMapView] = useState({ zoom: 11, center: null, bounds: null })
+  const searchRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -97,21 +126,19 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     async function loadStops() {
       setStops((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const q = encodeURIComponent(query.trim())
-        const res = await fetch(`${API_ROOT}/stops?q=${q}&limit=5000`)
+        const res = await fetch(`${API_ROOT}/stops?limit=2500`)
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`)
         }
         const data = await res.json()
-        const items = Array.isArray(data?.stops) ? data.stops : []
         if (!cancelled) {
-          setStops({ loading: false, error: '', items })
+          setStops({ loading: false, error: '', items: Array.isArray(data?.stops) ? data.stops : [] })
         }
       } catch (error) {
         if (!cancelled) {
           setStops({
             loading: false,
-            error: error instanceof Error ? error.message : 'Could not load subway stops',
+            error: describeFetchError(error, '/stops'),
             items: [],
           })
         }
@@ -119,500 +146,457 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     }
 
     loadStops()
-    setDropdownOpen(!!query.trim())
     return () => {
       cancelled = true
     }
-  }, [query, mapZoom])
+  }, [])
+
+  useEffect(() => {
+    if (!dropdownOpen) {
+      return undefined
+    }
+
+    function handleClickOutside(event) {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [dropdownOpen])
 
   useEffect(() => {
     let cancelled = false
 
-    async function loadSearchResults() {
+    async function runSearch() {
       const trimmed = query.trim()
-
       if (!trimmed) {
-        setSearchResults({ loading: false, error: '', items: [] })
+        setResults({ loading: false, error: '', items: [] })
         return
       }
 
-      setSearchResults((prev) => ({ ...prev, loading: true, error: '' }))
+      setResults((prev) => ({ ...prev, loading: true, error: '' }))
 
       try {
-        const q = encodeURIComponent(trimmed)
-        const res = await fetch(`${API_ROOT}/stops/search?q=${q}&limit=8`)
+        const res = await fetch(`${API_ROOT}/stops/search?q=${encodeURIComponent(trimmed)}&limit=8`)
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`)
         }
         const data = await res.json()
-        const items = Array.isArray(data?.stops) ? data.stops : []
         if (!cancelled) {
-          setSearchResults({ loading: false, error: '', items })
+          setResults({
+            loading: false,
+            error: '',
+            items: Array.isArray(data?.stops) ? data.stops : [],
+          })
         }
       } catch (error) {
         if (!cancelled) {
-          setSearchResults({
+          setResults({
             loading: false,
-            error: error instanceof Error ? error.message : 'Could not search stops',
+            error: describeFetchError(error, '/stops/search'),
             items: [],
           })
         }
       }
     }
 
-    loadSearchResults()
-    setDropdownOpen(!!query.trim())
+    runSearch()
     return () => {
       cancelled = true
     }
   }, [query])
 
   const visibleStops = useMemo(() => {
-    if (mapZoom < STATION_LOAD_ZOOM || stops.items.length === 0) {
+    if (mapView.zoom < MAP_RENDER_START_ZOOM || !mapView.bounds) {
       return []
     }
 
-    const maxDistanceKm = Math.max(0.45, MAX_RENDER_DISTANCE_KM - (MAP_MAX_ZOOM - mapZoom) * 0.25)
-    return stops.items.filter((stop) => {
-      const distanceKm = haversineKm(mapCenter[0], mapCenter[1], stop.lat, stop.lon)
-      return distanceKm <= maxDistanceKm
+    const byBounds = stops.items.filter((stop) => mapView.bounds.contains([stop.lat, stop.lon]))
+
+    // Keep higher-intent rail parent stations; platform children add visual noise.
+    const likelyStops = byBounds.filter((stop) => {
+      if (stop.mode === 'railway') {
+        return stop.is_parent_station === true
+      }
+      return true
     })
-  }, [mapCenter, mapZoom, stops.items])
+
+    // For non-rail modes, de-duplicate by name to reduce directional stop clutter.
+    const seenNames = new Set()
+    const deduped = []
+    for (const stop of likelyStops) {
+      if (stop.mode === 'railway') {
+        deduped.push(stop)
+        continue
+      }
+      const key = String(stop.stop_name || '').toLowerCase().trim()
+      if (!key || seenNames.has(key)) {
+        continue
+      }
+      seenNames.add(key)
+      deduped.push(stop)
+    }
+
+    return deduped
+  }, [mapView.bounds, mapView.zoom, stops.items])
 
   return (
     <main className="landing-shell">
-      <section className="hero-band">
-        <p className="eyebrow">ForeTransit</p>
-        <h1>TTC Live Map</h1>
-        <p className="hero-copy">
-          Real-world geography. Stops only appear after you zoom in, and nearby ones are clickable.
-        </p>
-        <div className="hero-actions">
-          <div className="search-stack" ref={searchRef}>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search station names"
-              onFocus={() => setDropdownOpen(!!query.trim())}
-            />
-            {dropdownOpen && query.trim() ? (
-              <div className="search-results">
-                {searchResults.loading ? <span className="search-hint">Searching...</span> : null}
-                {searchResults.error ? <span className="mini-error">{searchResults.error}</span> : null}
-                {!searchResults.loading && searchResults.items.length === 0 ? (
-                  <span className="search-hint">No station matches found</span>
-                ) : null}
-                {searchResults.items.map((stop) => (
-                  <button
-                    key={stop.stop_id}
-                    type="button"
-                    className="search-result-item"
-                    onClick={() => {
-                      onSelectStop(stop)
-                      setFocusStop(stop)
-                      setQuery(stop.stop_name)
-                      setDropdownOpen(false)
-                    }}
-                  >
-                    <strong>{stop.stop_name}</strong>
-                    <span>{stop.mode}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <button type="button" onClick={onEnterForecast} disabled={!selectedStop}>
-            {selectedStop ? `Open Forecast for ${selectedStop.stop_name}` : 'Pick a station'}
+      <section className="landing-top">
+        <p className="landing-eyebrow">ForeTransit</p>
+        <h1 className="landing-title">TTC Station Map</h1>
+
+        <div className="map-search-panel" ref={searchRef}>
+          <input
+            className="search-input"
+            type="text"
+            value={query}
+            onChange={(e) => {
+              const next = e.target.value
+              setQuery(next)
+              setDropdownOpen(!!next.trim())
+            }}
+            onFocus={() => setDropdownOpen(!!query.trim())}
+            placeholder="Search station names"
+          />
+
+          {dropdownOpen && query.trim() ? (
+            <div className="search-dropdown">
+              {results.loading ? <span className="search-note">Searching...</span> : null}
+              {results.error ? <span className="search-error">{results.error}</span> : null}
+              {!results.loading && !results.error && results.items.length === 0 ? (
+                <span className="search-note">No station matches found</span>
+              ) : null}
+              {results.items.map((stop) => (
+                <button
+                  key={stop.stop_id}
+                  type="button"
+                  className="search-item"
+                  onClick={() => {
+                    onSelectStop(stop)
+                    setQuery(stop.stop_name)
+                    setDropdownOpen(false)
+                  }}
+                >
+                  <strong>{stop.stop_name}</strong>
+                  <span>{stop.mode}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="map-actions">
+          <button type="button" className="open-forecast-btn" onClick={onEnterForecast} disabled={!selectedStop}>
+            {selectedStop ? `Open forecast for ${selectedStop.stop_name}` : 'Select a station'}
           </button>
         </div>
-        {stops.error ? <p className="error">{stops.error}</p> : null}
+        {stops.error ? <p className="search-error">{stops.error}</p> : null}
       </section>
 
-      <section className="map-panel">
-        <MapContainer
-          center={[43.6532, -79.3832]}
-          zoom={11}
-          minZoom={MAP_MIN_ZOOM}
-          maxZoom={MAP_MAX_ZOOM}
-          className="ttc-map"
-          scrollWheelZoom
-        >
+      <section className="map-box">
+        <MapContainer center={[43.6532, -79.3832]} zoom={11} minZoom={10} maxZoom={17} className="ttc-map">
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          <FocusMapOnStop stop={selectedStop} />
+          <MapViewTracker onViewChange={setMapView} />
 
-          <ZoomTracker
-            onViewChange={(zoom, center) => {
-              setMapZoom(zoom)
-              setMapCenter([center.lat, center.lng])
-            }}
-          />
-
-          <FocusMap stop={focusStop} />
-
-          {mapZoom >= STATION_LOAD_ZOOM
-            ? visibleStops.map((stop) => {
-                const active = selectedStop?.stop_id === stop.stop_id
-                const opacity = Math.max(
-                  0,
-                  Math.min((mapZoom - STATION_FADE_START_ZOOM) / (MAP_MAX_ZOOM - STATION_FADE_START_ZOOM), 1),
-                )
-                return (
-                  <Marker
-                    key={stop.stop_id}
-                    position={[stop.lat, stop.lon]}
-                    icon={stationIcon(stop.mode, active, opacity)}
-                    eventHandlers={{
-                      click: () => onSelectStop(stop),
-                    }}
-                  >
-                    <Popup>
-                      <div className="popup-card">
-                        <strong>{stop.stop_name}</strong>
-                        <p>ID: {stop.stop_id}</p>
-                        <button type="button" onClick={() => onSelectStop(stop)}>
-                          Open station
-                        </button>
-                      </div>
-                    </Popup>
-                  </Marker>
-                )
-              })
-            : null}
+          {visibleStops.map((stop) => {
+            const isActive = selectedStop?.stop_id === stop.stop_id
+            const opacity = isActive ? 1 : edgeFadeOpacity(stop, mapView.bounds)
+            return (
+              <Marker
+                key={stop.stop_id}
+                position={[stop.lat, stop.lon]}
+                icon={stationIcon(stop, isActive, opacity)}
+                eventHandlers={{
+                  click: () => onSelectStop(stop),
+                }}
+              >
+                <Popup>
+                  <div className="popup-card">
+                    <strong>{stop.stop_name}</strong>
+                    <p>{stop.mode}</p>
+                    <button type="button" onClick={onEnterForecast}>
+                      Open forecast
+                    </button>
+                  </div>
+                </Popup>
+              </Marker>
+            )
+          })}
         </MapContainer>
-
-        <div className="map-meta">
-          <span>
-            {stops.loading
-              ? 'Loading TTC stops...'
-              : mapZoom >= STATION_LOAD_ZOOM
-                ? `${visibleStops.length} nearby stops visible`
-                : 'Zoom in to load nearby stops'}
-          </span>
-          <span>{selectedStop ? `Selected: ${selectedStop.stop_name}` : 'No station selected'}</span>
-        </div>
       </section>
+
+      <p className="map-render-hint">
+        {mapView.zoom < MAP_RENDER_START_ZOOM
+          ? 'Zoom in to 50%+ to render likely-use stops.'
+          : `Rendering ${visibleStops.length} likely-use stops in the current view.`}
+      </p>
     </main>
   )
 }
 
 function ForecastDashboard({ selectedStop, onBackToMap }) {
-  const [stopSearch, setStopSearch] = useState(selectedStop?.stop_name || 'Danforth')
-  const [stopId, setStopId] = useState(selectedStop?.stop_id || '')
-  const [stops, setStops] = useState({ loading: false, error: '', items: [] })
-  const [health, setHealth] = useState({ loading: true, ok: false })
-  const [vehicles, setVehicles] = useState({ loading: true, count: 0, error: '' })
-  const [forecast, setForecast] = useState({ loading: false, data: null, error: '' })
+  const [query, setQuery] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [results, setResults] = useState({ loading: false, error: '', items: [] })
+  const [forecast, setForecast] = useState({ loading: false, error: '', data: null })
+  const [now, setNow] = useState(() => new Date())
+  const [liveWeather, setLiveWeather] = useState({ loading: true, error: '', data: null })
+  const searchRef = useRef(null)
 
   useEffect(() => {
+    if (selectedStop?.stop_name) {
+      setQuery(selectedStop.stop_name)
+    }
     if (selectedStop?.stop_id) {
-      setStopId(selectedStop.stop_id)
-      setStopSearch(selectedStop.stop_name || '')
+      selectStop(selectedStop)
     }
-  }, [selectedStop])
+  }, [selectedStop?.stop_id])
+
+  function backToMap() {
+    onBackToMap()
+  }
 
   useEffect(() => {
-    let cancelled = false
+    const timer = window.setInterval(() => {
+      setNow(new Date())
+    }, 1000)
 
-    async function checkHealth() {
-      setHealth({ loading: true, ok: false, message: '' })
-      try {
-        const res = await fetch(`${API_ROOT}/`)
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const data = await res.json()
-        if (!cancelled) {
-          setHealth({ loading: false, ok: true, message: data.status || 'Backend online' })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setHealth({
-            loading: false,
-            ok: false,
-            message: error instanceof Error ? error.message : 'Request failed',
-          })
-        }
-      }
-    }
-
-    checkHealth()
-    return () => {
-      cancelled = true
-    }
+    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
     let cancelled = false
 
-    async function loadStops() {
-      setStops((prev) => ({ ...prev, loading: true, error: '' }))
+    async function fetchWeather() {
+      setLiveWeather((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const query = encodeURIComponent(stopSearch.trim())
-        const res = await fetch(`${API_ROOT}/stops/search?q=${query}&limit=40`)
+        const res = await fetch(`${API_ROOT}/weather/current`)
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`)
         }
         const data = await res.json()
-        const items = Array.isArray(data?.stops) ? data.stops : []
         if (!cancelled) {
-          setStops({ loading: false, error: '', items })
-          if (items.length > 0 && !items.some((s) => s.stop_id === stopId)) {
-            setStopId(items[0].stop_id)
+          if (data?.error) {
+            setLiveWeather({ loading: false, error: data.error, data: null })
+            return
           }
+          setLiveWeather({ loading: false, error: '', data })
         }
       } catch (error) {
         if (!cancelled) {
-          setStops({
+          setLiveWeather({
             loading: false,
-            error: error instanceof Error ? error.message : 'Could not load stops',
+            error: describeFetchError(error, '/weather/current'),
+            data: null,
+          })
+        }
+      }
+    }
+
+    fetchWeather()
+    const weatherTimer = window.setInterval(fetchWeather, 60000)
+    return () => {
+      cancelled = true
+      window.clearInterval(weatherTimer)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!dropdownOpen) {
+      return undefined
+    }
+
+    function handleClickOutside(event) {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [dropdownOpen])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function runSearch() {
+      const trimmed = query.trim()
+      if (!trimmed) {
+        setResults({ loading: false, error: '', items: [] })
+        return
+      }
+
+      setResults((prev) => ({ ...prev, loading: true, error: '' }))
+
+      try {
+        const res = await fetch(`${API_ROOT}/stops/search?q=${encodeURIComponent(trimmed)}&limit=8`)
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`)
+        }
+        const data = await res.json()
+        if (!cancelled) {
+          setResults({
+            loading: false,
+            error: '',
+            items: Array.isArray(data?.stops) ? data.stops : [],
+          })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setResults({
+            loading: false,
+            error: describeFetchError(error, '/stops/search'),
             items: [],
           })
         }
       }
     }
 
-    loadStops()
+    runSearch()
     return () => {
       cancelled = true
     }
-  }, [stopSearch, stopId])
+  }, [query])
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function getVehicles() {
-      setVehicles((prev) => ({ ...prev, loading: true, error: '' }))
-      try {
-        const res = await fetch(`${API_ROOT}/vehicles/live`)
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const data = await res.json()
-        const count = Array.isArray(data) ? data.length : 0
-        if (!cancelled) {
-          setVehicles({ loading: false, count, error: '' })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setVehicles({
-            loading: false,
-            count: 0,
-            error: error instanceof Error ? error.message : 'Could not load vehicles',
-          })
-        }
-      }
-    }
-
-    getVehicles()
-    const timer = setInterval(getVehicles, 30000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [])
-
-  async function handleSubmit(event) {
-    event.preventDefault()
-    const cleanedStopId = stopId.trim()
-
-    if (!cleanedStopId) {
-      setForecast({ loading: false, data: null, error: 'Please select a stop name.' })
-      return
-    }
-
-    setForecast({ loading: true, data: null, error: '' })
+  async function selectStop(stop) {
+    setQuery(stop.stop_name)
+    setDropdownOpen(false)
+    setForecast({ loading: true, error: '', data: null })
 
     try {
-      const res = await fetch(`${API_ROOT}/station/${encodeURIComponent(cleanedStopId)}`)
+      const res = await fetch(`${API_ROOT}/station/${encodeURIComponent(stop.stop_id)}`)
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`)
       }
-
       const data = await res.json()
       if (data?.error) {
         throw new Error(data.error)
       }
-
-      setForecast({ loading: false, data, error: '' })
+      setForecast({ loading: false, error: '', data })
     } catch (error) {
       setForecast({
         loading: false,
+        error: describeFetchError(error, '/station/{stop_id}'),
         data: null,
-        error: error instanceof Error ? error.message : 'Could not fetch forecast',
       })
     }
   }
 
-  const current = forecast.data?.current
-  const topFactors = Array.isArray(forecast.data?.top_factors) ? forecast.data.top_factors : []
-  const nearbyVehicles = Array.isArray(forecast.data?.vehicles_nearby)
-    ? forecast.data.vehicles_nearby
-    : []
-  const weather = forecast.data?.weather
-  const warnings = Array.isArray(forecast.data?.warnings) ? forecast.data.warnings : []
-
-  const selectedOptionMissing = useMemo(() => {
-    if (!stopId) {
-      return false
-    }
-    return !stops.items.some((s) => s.stop_id === stopId)
-  }, [stops.items, stopId])
+  const magi = forecast.data?.magi
+  const winnerScore = magi?.selection_context?.winner_score_100
+  const factors = Array.isArray(forecast.data?.top_factors) ? forecast.data.top_factors : []
+  const scoreHeading = 'Predicted standardized score'
+  const displayScore = typeof winnerScore === 'number' ? Math.round(winnerScore) : '--'
+  const displayTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const displayDate = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+  const liveTemp = liveWeather.data?.temperature_c
+  const liveRain = liveWeather.data?.rain_mm
+  const liveWind = liveWeather.data?.wind_kmh
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">ForeTransit</p>
-          <h1>Transit Delay Prediction</h1>
-        </div>
-        <div className="topbar-actions">
-          <div className={`health ${statusClass(health)}`}>
-            <span className="dot" aria-hidden="true" />
-            <span>
-              {health.loading ? 'Checking API...' : health.ok ? 'API Online' : 'API Offline'}
-            </span>
-          </div>
-          <button type="button" className="ghost-btn" onClick={onBackToMap}>
-            Back to Map
+    <main className="minimal-shell">
+      <header className="info-booth" aria-live="polite">
+        <div className="booth-left">
+          <button type="button" className="back-map-btn" onClick={backToMap}>
+            Back to map
           </button>
+        </div>
+
+        <div className="booth-center">
+          <p className="booth-label">Weather</p>
+          {liveWeather.loading ? <p className="booth-value">Updating weather...</p> : null}
+          {liveWeather.error ? <p className="booth-value error">{liveWeather.error}</p> : null}
+          {!liveWeather.loading && !liveWeather.error ? (
+            <p className="booth-value">
+              Temp {typeof liveTemp === 'number' ? `${Math.round(liveTemp)} C` : 'N/A'}
+              {' · '}Rain {typeof liveRain === 'number' ? `${liveRain} mm` : 'N/A'}
+              {' · '}Wind {typeof liveWind === 'number' ? `${liveWind} km/h` : 'N/A'}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="booth-right">
+          <p className="booth-label">Time</p>
+          <p className="booth-time">{displayTime}</p>
+          <p className="booth-date">{displayDate}</p>
         </div>
       </header>
 
-      <section className="grid">
-        <article className="panel form-panel">
-          <h2>Query Forecast</h2>
-          <p className="panel-copy">Search by station name and fetch prediction automatically.</p>
+      <section className="search-panel" ref={searchRef}>
+        <input
+          className="search-input"
+          type="text"
+          value={query}
+          onChange={(e) => {
+            const next = e.target.value
+            setQuery(next)
+            setDropdownOpen(!!next.trim())
+          }}
+          onFocus={() => setDropdownOpen(!!query.trim())}
+          placeholder="Search station names"
+        />
 
-          <form className="form" onSubmit={handleSubmit}>
-            <label htmlFor="stop-search">Stop name search</label>
-            <input
-              id="stop-search"
-              type="text"
-              value={stopSearch}
-              onChange={(e) => setStopSearch(e.target.value)}
-              placeholder="Danforth"
-            />
-
-            <label htmlFor="stop-select">Select stop</label>
-            <select
-              id="stop-select"
-              value={stopId}
-              onChange={(e) => setStopId(e.target.value)}
-              disabled={stops.loading || stops.items.length === 0}
-            >
-              {selectedOptionMissing && selectedStop ? (
-                <option value={selectedStop.stop_id}>{selectedStop.stop_name}</option>
-              ) : null}
-              {stops.items.length === 0 ? (
-                <option value="">No stops found</option>
-              ) : (
-                stops.items.map((stop) => (
-                  <option key={stop.stop_id} value={stop.stop_id}>
-                    {stop.stop_name}
-                  </option>
-                ))
-              )}
-            </select>
-
-            {stops.error ? <p className="mini-error">{stops.error}</p> : null}
-
-            <button type="submit" disabled={forecast.loading}>
-              {forecast.loading ? 'Loading...' : 'Get Forecast'}
-            </button>
-          </form>
-
-          {forecast.error ? <p className="error">{forecast.error}</p> : null}
-          {warnings.map((warning) => (
-            <p key={warning} className="mini-warning">
-              {warning}
-            </p>
-          ))}
-        </article>
-
-        <article className="panel stat-panel">
-          <h2>Live Snapshot</h2>
-          <div className="stats">
-            <div className="stat-card">
-              <span className="label">Vehicles live</span>
-              <span className="value">{vehicles.loading ? '...' : vehicles.count}</span>
-              {vehicles.error ? <span className="mini-error">{vehicles.error}</span> : null}
-            </div>
-            <div className="stat-card">
-              <span className="label">Station</span>
-              <span className="value small">{forecast.data?.stop_name || 'Select stop'}</span>
-            </div>
-            <div className="stat-card">
-              <span className="label">Predicted delay</span>
-              <span className="value small">{formatDelay(current?.delay_min)}</span>
-            </div>
-            <div className="stat-card">
-              <span className="label">Risk label</span>
-              <span className="value small">{current?.label || 'N/A'}</span>
-            </div>
+        {dropdownOpen && query.trim() ? (
+          <div className="search-dropdown">
+            {results.loading ? <span className="search-note">Searching...</span> : null}
+            {results.error ? <span className="search-error">{results.error}</span> : null}
+            {!results.loading && !results.error && results.items.length === 0 ? (
+              <span className="search-note">No station matches found</span>
+            ) : null}
+            {results.items.map((stop) => (
+              <button
+                key={stop.stop_id}
+                type="button"
+                className="search-item"
+                onClick={() => selectStop(stop)}
+              >
+                <strong>{stop.stop_name}</strong>
+                <span>{stop.mode}</span>
+              </button>
+            ))}
           </div>
-        </article>
+        ) : null}
       </section>
 
-      <section className="grid second">
-        <article className="panel wide">
-          <h2>Top Delay Factors</h2>
-          {topFactors.length === 0 ? (
-            <p className="panel-copy">Fetch a forecast to see contributing factors.</p>
-          ) : (
-            <ul className="factor-list">
-              {topFactors.map((factor, idx) => (
-                <li key={`${factor.factor}-${idx}`}>
-                  <div>
-                    <p>{factor.factor}</p>
-                    <span className="impact">Impact: {factor.impact}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
+      <section className="result-panel">
+        {forecast.loading ? <p>Loading model selection...</p> : null}
+        {forecast.error ? <p className="search-error">{forecast.error}</p> : null}
 
-        <article className="panel wide">
-          <h2>Nearby Vehicles</h2>
-          {nearbyVehicles.length === 0 ? (
-            <p className="panel-copy">No nearby vehicles shown yet.</p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Vehicle</th>
-                    <th>Route</th>
-                    <th>Delay (sec)</th>
-                    <th>Speed (km/h)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nearbyVehicles.slice(0, 8).map((vehicle) => (
-                    <tr key={`${vehicle.vehicle_id}-${vehicle.route_id}`}>
-                      <td>{vehicle.vehicle_id}</td>
-                      <td>{vehicle.route_id}</td>
-                      <td>{vehicle.delay_seconds}</td>
-                      <td>{vehicle.speed_kmh}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="weather-widget">
+          <div className="widget-left">
+            <p className="widget-station">{scoreHeading}</p>
+            <div className="widget-score-row">
+              <p className="widget-score">{displayScore}</p>
+              <span className="widget-score-max">/100</span>
             </div>
-          )}
-        </article>
-      </section>
+            <p className="widget-model-line">
+              Model selected: {formatModelName(magi?.model_used)}
+            </p>
+          </div>
 
-      <footer className="footer">
-        <p>
-          {weather
-            ? `Weather: ${weather.temperature}C, rain ${weather.rain}mm, snow ${weather.snow}mm, wind ${weather.wind}km/h`
-            : 'Weather data appears after station lookup.'}
-        </p>
-      </footer>
+          <div className="widget-right">
+            <p className="widget-title">Confounding Factors</p>
+            {factors.length > 0 ? (
+              <ul className="factor-list">
+                {factors.slice(0, 3).map((factor, idx) => (
+                  <li key={`${factor.factor}-${idx}`}>
+                    <span>{factor.factor}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="widget-empty">Confounding factors will appear after forecast data loads.</p>
+            )}
+          </div>
+        </div>
+      </section>
     </main>
   )
 }
@@ -621,13 +605,12 @@ function App() {
   const [view, setView] = useState('map')
   const [selectedStop, setSelectedStop] = useState(null)
 
+  useEffect(() => {
+    document.title = view === 'forecast' ? 'ForeTransit | Forecast Interface' : 'ForeTransit | Map Interface'
+  }, [view])
+
   if (view === 'forecast') {
-    return (
-      <ForecastDashboard
-        selectedStop={selectedStop}
-        onBackToMap={() => setView('map')}
-      />
-    )
+    return <ForecastDashboard selectedStop={selectedStop} onBackToMap={() => setView('map')} />
   }
 
   return (

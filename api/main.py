@@ -2,13 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.cache import get as cache_get, set as cache_set, stats as cache_stats
 import json
+import re
 import pandas as pd
+from datetime import datetime
 
 app = FastAPI(title="ForéTransit API")
 STOPS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data/stops.txt"
 STOP_TIMES_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt"
 TRIPS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data/trips.txt"
 ROUTES_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt"
+WEATHER_PATH = "data/raw/weather/weather_latest.json"
 LIGHT_RAIL_KEYWORDS = {
     "streetcar",
     "lrt",
@@ -88,11 +91,29 @@ SUBWAY_STATION_KEYWORDS = {
 }
 def classify_station_mode(station_name: str) -> str:
     name = str(station_name).lower()
+    if re.search(r"\s-\s.*station\b", name) and "go station" not in name:
+        return "railway"
     if any(keyword in name for keyword in LIGHT_RAIL_KEYWORDS):
         return "light_rail"
     if any(keyword in name for keyword in SUBWAY_STATION_KEYWORDS):
         return "railway"
     return "bus"
+
+
+def is_ttc_train_station_name(stop_name: str) -> bool:
+    name = str(stop_name).lower().strip()
+    if "go station" in name:
+        return False
+    if re.search(r"\s-\s.*station\b", name):
+        return True
+    if re.search(r"\bstation\b", name) and any(keyword in name for keyword in SUBWAY_STATION_KEYWORDS):
+        return True
+    return False
+
+
+def is_parent_ttc_station(stop_name: str) -> bool:
+    name = str(stop_name).strip()
+    return is_ttc_train_station_name(name) and (" - " not in name)
 
 
 def build_stop_mode_map(stops_df: pd.DataFrame) -> dict:
@@ -120,12 +141,51 @@ def build_stop_mode_map(stops_df: pd.DataFrame) -> dict:
             continue
 
         name = str(row.stop_name).lower()
+        if is_ttc_train_station_name(name):
+            mode_by_stop_id[row.stop_id] = "railway"
+            continue
+        if re.search(r"\s-\s.*station\b", name) and "go station" not in name:
+            mode_by_stop_id[row.stop_id] = "railway"
+            continue
         if any(keyword in name for keyword in LIGHT_RAIL_KEYWORDS):
             mode_by_stop_id[row.stop_id] = "light_rail"
         else:
             mode_by_stop_id[row.stop_id] = "bus"
 
     return mode_by_stop_id
+
+
+def build_parent_station_map(stops_df: pd.DataFrame) -> dict:
+    df = stops_df.copy()
+    df["stop_id"] = df["stop_id"].astype(str)
+    df["stop_name"] = df["stop_name"].astype(str)
+    df["location_type"] = pd.to_numeric(df.get("location_type", 0), errors="coerce").fillna(0).astype(int)
+    df["parent_station"] = df.get("parent_station", "").fillna("").astype(str)
+
+    parent_by_stop_id = {}
+    for row in df.itertuples(index=False):
+        name = str(row.stop_name)
+        if not is_ttc_train_station_name(name):
+            parent_by_stop_id[row.stop_id] = False
+            continue
+
+        has_parent_ref = bool(str(row.parent_station).strip())
+        if has_parent_ref:
+            parent_by_stop_id[row.stop_id] = False
+            continue
+
+        if " - " in name:
+            parent_by_stop_id[row.stop_id] = False
+            continue
+
+        if row.location_type == 1:
+            parent_by_stop_id[row.stop_id] = True
+            continue
+
+        # Some TTC station rows in raw GTFS are not flagged as location_type=1.
+        parent_by_stop_id[row.stop_id] = is_parent_ttc_station(name)
+
+    return parent_by_stop_id
 
 # Allows frontend to call this API from any origin
 app.add_middleware(
@@ -155,7 +215,13 @@ def station_forecast(stop_id: str):
     cached = cache_get(stop_id)
     if cached:
         return {**cached, "cached": True}
-    result = get_station_forecast(stop_id)
+    try:
+        result = get_station_forecast(stop_id)
+    except Exception as exc:
+        return {
+            "error": "Station forecast failed while processing this stop.",
+            "details": str(exc),
+        }
     cache_set(stop_id, result)
     return {**result, "cached": False}
 
@@ -166,6 +232,46 @@ def live_vehicles():
     with open("data/raw/gtfs_realtime/vehicles_latest.json") as f:
         data = json.load(f)
     return data["data"]["vehicle"]
+
+
+@app.get("/weather/current")
+def current_weather():
+    try:
+        with open(WEATHER_PATH) as f:
+            weather = json.load(f)
+
+        now = datetime.now()
+        current_hour = now.strftime("%Y-%m-%dT%H:00")
+        times = weather.get("hourly", {}).get("time", [])
+
+        if current_hour in times:
+            idx = times.index(current_hour)
+            hourly = weather.get("hourly", {})
+            return {
+                "temperature_c": hourly.get("temperature_2m", [None])[idx],
+                "rain_mm": hourly.get("rain", [None])[idx],
+                "snow_mm": hourly.get("snowfall", [None])[idx],
+                "wind_kmh": hourly.get("windspeed_10m", [None])[idx],
+                "visibility_m": hourly.get("visibility", [None])[idx],
+                "observed_hour": current_hour,
+                "source": "weather_latest.json",
+            }
+
+        return {
+            "temperature_c": None,
+            "rain_mm": None,
+            "snow_mm": None,
+            "wind_kmh": None,
+            "visibility_m": None,
+            "observed_hour": current_hour,
+            "source": "weather_latest.json",
+            "warning": "Current hour not found in weather file",
+        }
+    except Exception as exc:
+        return {
+            "error": "Weather data unavailable",
+            "details": str(exc),
+        }
 
 
 @app.get("/routes/geojson")
@@ -218,6 +324,7 @@ def search_stops(q: str = "", limit: int = 30):
         return {"error": "Stops data unavailable", "details": str(exc), "stops": []}
 
     mode_by_stop_id = build_stop_mode_map(stops_df)
+    parent_by_stop_id = build_parent_station_map(stops_df)
 
     results = stops_df
     query = q.strip()
@@ -231,6 +338,7 @@ def search_stops(q: str = "", limit: int = 30):
                 "stop_id": str(row.stop_id),
                 "stop_name": row.stop_name,
                 "mode": mode_by_stop_id.get(str(row.stop_id), "bus"),
+                "is_parent_station": parent_by_stop_id.get(str(row.stop_id), False),
                 "lat": float(row.stop_lat),
                 "lon": float(row.stop_lon),
             }
@@ -250,6 +358,7 @@ def get_stops(q: str = "", limit: int = 1500):
         return {"error": "Stops data unavailable", "details": str(exc), "stops": []}
 
     mode_by_stop_id = build_stop_mode_map(stops_df)
+    parent_by_stop_id = build_parent_station_map(stops_df)
 
     results = stops_df
     query = q.strip()
@@ -265,6 +374,7 @@ def get_stops(q: str = "", limit: int = 1500):
                 "lat": float(row.stop_lat),
                 "lon": float(row.stop_lon),
                 "mode": mode_by_stop_id.get(str(row.stop_id), "bus"),
+                "is_parent_station": parent_by_stop_id.get(str(row.stop_id), False),
             }
             for row in capped.itertuples(index=False)
         ]
@@ -282,6 +392,7 @@ def get_subway_stops(q: str = "", limit: int = 1200):
         return {"error": "Stops data unavailable", "details": str(exc), "stops": []}
 
     mode_by_stop_id = build_stop_mode_map(stops_df)
+    parent_by_stop_id = build_parent_station_map(stops_df)
 
     try:
         routes_df = pd.read_csv(ROUTES_PATH, usecols=["route_id", "route_type"]).dropna()
@@ -323,6 +434,7 @@ def get_subway_stops(q: str = "", limit: int = 1200):
                 "lat": float(row.stop_lat),
                 "lon": float(row.stop_lon),
                 "mode": mode_by_stop_id.get(str(row.stop_id), "bus"),
+                "is_parent_station": parent_by_stop_id.get(str(row.stop_id), False),
             }
             for row in capped.itertuples(index=False)
         ]
