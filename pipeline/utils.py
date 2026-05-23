@@ -3,32 +3,20 @@ import json
 import math
 from datetime import datetime, timedelta
 
-def safe_read_csv(path):
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+stops_df      = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stops.txt")
+stop_times_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt")
+trips_df      = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/trips.txt")
+routes_df     = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt")
 
+with open("data/raw/gtfs_realtime/vehicles_latest.json", "r") as f:
+    gtfs_rt_data = json.load(f)
 
-def safe_read_json(path):
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+vehicles     = gtfs_rt_data["data"]["vehicle"]       # fixed key
+capture_time = gtfs_rt_data.get("timestamp", "")     # fixed key
 
-
-stops_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stops.txt")
-stop_times_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt")
-trips_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/trips.txt")
-routes_df = safe_read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt")
-
-gtfs_rt_data = safe_read_json("data/raw/gtfs_realtime/vehicles_latest.json")
-vehicles = gtfs_rt_data.get("data", {}).get("vehicle", [])
-capture_time = gtfs_rt_data.get("timestamp")
-#----- Haverstine distance function - curved distance between two points on a sphere -----
+# ─── Haversine ───────────────────────────────
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371 # Earth radius in km
+    R = 6371
     d_lat = math.radians(lat2 - lat1)
     d_lon = math.radians(lon2 - lon1)
     a = (math.sin(d_lat/2)**2 +
@@ -37,7 +25,7 @@ def haversine(lat1, lon1, lat2, lon2):
          math.sin(d_lon/2)**2)
     return R * 2 * math.asin(math.sqrt(a))
 
-#Calculate Nearest stop for each vehicle
+# ─── Nearest stop ────────────────────────────
 def find_nearest_stop(lat, lon):
     stops_df["dist"] = stops_df.apply(
         lambda r: haversine(lat, lon,
@@ -46,36 +34,93 @@ def find_nearest_stop(lat, lon):
     nearest = stops_df.loc[stops_df["dist"].idxmin()]
     return nearest["stop_id"], nearest["dist"]
 
-# ---- Transform GTFS Time into Actual human time ------
+# ─── GTFS time parser ────────────────────────
+# Handles times past midnight e.g. 25:30:00
 def parse_gtfs_time(time_str):
-    h, m, s  = map(int, time_str.split(":"))
-    base     = datetime.now().replace(
-                    hour=0, minute=0,
-                    second=0, microsecond=0)
-    return base + timedelta(hours=h, minutes=m, seconds=s)
+    try:
+        h, m, s = map(int, str(time_str).split(":"))
+        base = datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        return base + timedelta(hours=h, minutes=m, seconds=s)
+    except Exception:
+        return None   # caller must dropna
 
-# ---- Classification delay based on (Chen Et. Al 2020) - https://arxiv.org/pdf/2006.16180.pdf ----
+# ─── Mode classifier ─────────────────────────
+def classify_mode(route_type: int) -> str:
+    if route_type == 0: return "streetcar"
+    if route_type == 1: return "subway"
+    return "bus"
+
+# ─── Delay classifier (Chen et al. 2020) ─────
 def classify_delay(seconds):
-    if seconds < 60:   return 0  # on time
-    if seconds < 180:  return 1  # minor
-    if seconds < 300:  return 2  # moderate
+    if seconds < 60:  return 0   # on time  (includes early)
+    if seconds < 180: return 1   # minor
+    if seconds < 300: return 2   # moderate
     return 3                     # severe
-# ---- Severity helpers ----
+
+# ─── Severity helpers ────────────────────────
 def severity_label(severity):
-    return {
-        0: "on_time",
-        1: "minor",
-        2: "moderate",
-        3: "severe"
-    }[severity]
+    return {0: "on_time", 1: "minor",
+            2: "moderate", 3: "severe"}[severity]
 
 def severity_color(severity):
-    return {
-        0: "green",
-        1: "yellow",
-        2: "orange",
-        3: "red"
-    }[severity]
+    return {0: "green", 1: "yellow",
+            2: "orange", 3: "red"}[severity]
+
+# ─── Data cleansing helpers ───────────────────
+
+# Plausible speed range for TTC vehicles (km/h)
+MIN_SPEED_KMH = 0
+MAX_SPEED_KMH = 120
+
+# Max believable delay window in either direction (seconds)
+# Beyond ±2 hours almost certainly a bad schedule match
+MAX_DELAY_ABS = 7200
+
+def is_valid_vehicle(v: dict) -> bool:
+    """
+    Rejects vehicles with implausible or missing data.
+    Returns False if the record should be skipped.
+    """
+    try:
+        lat   = float(v["lat"])
+        lon   = float(v["lon"])
+        speed = float(v["speedKmHr"])
+    except (KeyError, ValueError, TypeError):
+        return False
+
+    # Coordinate sanity — Toronto bounding box
+    if not (43.4 <= lat <= 43.9):  return False
+    if not (-79.7 <= lon <= -79.1): return False
+
+    # Speed sanity
+    if speed < MIN_SPEED_KMH or speed > MAX_SPEED_KMH:
+        return False
+
+    # Must have an ID and routeTag
+    if not v.get("id") or not v.get("routeTag"):
+        return False
+
+    return True
+
+def is_valid_delay(delay_seconds: float) -> bool:
+    """
+    Rejects delays that are implausibly large (bad schedule match).
+    Note: negative = early, which is valid but capped.
+    """
+    return abs(delay_seconds) <= MAX_DELAY_ABS
+
+def deduplicate_vehicles(vehicles: list) -> list:
+    """
+    Keeps only the most recent record per vehicle ID.
+    If the feed has duplicates, last one wins.
+    """
+    seen = {}
+    for v in vehicles:
+        vid = v.get("id")
+        if vid:
+            seen[vid] = v
+    return list(seen.values())
 
 ### TRASH BELOW - FOR TESTING PURPOSES ONLY - NOT PRODUCTION CODE
 

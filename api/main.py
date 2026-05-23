@@ -165,7 +165,7 @@ def station_forecast(stop_id: str):
 def live_vehicles():
     with open("data/raw/gtfs_realtime/vehicles_latest.json") as f:
         data = json.load(f)
-    return data["vehicles"]["vehicle"]
+    return data["data"]["vehicle"]
 
 
 @app.get("/routes/geojson")
