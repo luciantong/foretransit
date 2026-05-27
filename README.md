@@ -380,7 +380,7 @@ plt.subplots_adjust(top=0.86, bottom=0.14)
 # Saved directly to outputs directory
 plt.savefig('outputs/ttc_system_overview_chart.png', dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
 plt.show()
-```
+
 """
 ## Methodologies & Figures
 
