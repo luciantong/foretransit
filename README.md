@@ -381,6 +381,70 @@ plt.subplots_adjust(top=0.86, bottom=0.14)
 plt.savefig('outputs/ttc_system_overview_chart.png', dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
 plt.show()
 ```
+"""
+Methodology Figures — Tier 2 Indicators from TTC Sources (No APC data)
+Updated commercial speed series based on TTC Corporate Plan figures provided:
+
+2019 Actual: 18.9 km/h
+2022 Actual: 18.6 km/h
+2023 Actual: 17.6 km/h
+2024 Projection: 17.1 km/h
+2025 Target: 17.2 km/h
+2026 Target: 17.2 km/h
+
+Graph 1 uses these values; Graph 2 remains an illustrative placeholder for
+schedule adherence to be replaced with TTC AVL-derived metrics.
+"""
+
+import matplotlib.pyplot as plt
+
+# Clean academic style
+plt.rcParams.update({
+    "figure.dpi": 100,
+    "savefig.dpi": 300,
+    "font.size": 10,
+    "axes.titlesize": 13,
+    "axes.labelsize": 11,
+    "axes.spines.top": False,
+    "axes.spines.right": False
+})
+
+# =============================================================================
+# GRAPH 1 — TTC Bus Average Speed, 2019–2026 (Updated series)
+# =============================================================================
+
+years = ["2019 (Actual)", "2022 (Actual)", "2023 (Actual)",
+         "2024 (Projection)", "2025 (Target)", "2026 (Target)"]
+
+avg_speed_kmh = [18.9, 18.6, 17.6, 17.1, 17.2, 17.2]
+
+fig1, ax1 = plt.subplots(figsize=(9.2, 5.4))
+fig1.patch.set_facecolor("white")
+ax1.set_facecolor("white")
+
+ax1.plot(years, avg_speed_kmh, color="#2E86AB", marker="o", linewidth=2, label="Average speed / target")
+ax1.set_title("TTC Bus Average Speed, 2019–2026", pad=12)
+ax1.set_xlabel("Year (status)")
+ax1.set_ylabel("Bus average speed (km/h)")
+ax1.grid(axis="y", linestyle="--", alpha=0.3)
+
+# Value labels
+for x, y in zip(years, avg_speed_kmh):
+    ax1.text(x, y + 0.18, f"{y:.1f}", ha="center", va="bottom", fontsize=9)
+
+# Figure note
+note1 = (
+    "Figure 1. Bus Average Kilometres/Hour from the TTC Corporate Plan 2024 Year in Review Progress Report: "
+    "2019 Actual 18.9; 2022 Actual 18.6; 2023 Actual 17.6; 2024 Projection 17.1; 2025 Target 17.2; 2026 Target 17.2. "
+    "This commercial-speed indicator (Tier 2, AVL-related) supports adapting an ordered probit delay-severity "
+    "model to Toronto’s local operating context."
+)
+fig1.text(0.5, 0.02, note1, ha="center", va="bottom", fontsize=9, style="italic", color="#333333")
+
+plt.tight_layout()
+plt.subplots_adjust(bottom=0.26)
+plt.savefig("ttc_bus_average_speed_updated.png", bbox_inches="tight", facecolor="white")
+plt.close(fig1)
 
 ### Generated Output
 ![TTC System Overview](outputs/ttc_system_overview_chart.png)
