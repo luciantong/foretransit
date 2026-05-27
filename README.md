@@ -382,19 +382,17 @@ plt.savefig('outputs/ttc_system_overview_chart.png', dpi=300, bbox_inches='tight
 plt.show()
 ```
 """
-Methodology Figures — Tier 2 Indicators from TTC Sources (No APC data)
-Updated commercial speed series based on TTC Corporate Plan figures provided:
+## Methodologies & Figures
 
-2019 Actual: 18.9 km/h
-2022 Actual: 18.6 km/h
-2023 Actual: 17.6 km/h
-2024 Projection: 17.1 km/h
-2025 Target: 17.2 km/h
-2026 Target: 17.2 km/h
-
-Graph 1 uses these values; Graph 2 remains an illustrative placeholder for
-schedule adherence to be replaced with TTC AVL-derived metrics.
-"""
+```python
+# Methodology Figures — Tier 2 Indicators from TTC Sources (No APC data)
+# Updated commercial speed series based on TTC Corporate Plan figures provided:
+# 2019 Actual: 18.9 km/h
+# 2022 Actual: 18.6 km/h
+# 2023 Actual: 17.6 km/h
+# 2024 Projection: 17.1 km/h
+# 2025 Target: 17.2 km/h
+# 2026 Target: 17.2 km/h
 
 import matplotlib.pyplot as plt
 
@@ -413,9 +411,7 @@ plt.rcParams.update({
 # GRAPH 1 — TTC Bus Average Speed, 2019–2026 (Updated series)
 # =============================================================================
 
-years = ["2019 (Actual)", "2022 (Actual)", "2023 (Actual)",
-         "2024 (Projection)", "2025 (Target)", "2026 (Target)"]
-
+years = ["2019 (Actual)", "2022 (Actual)", "2023 (Actual)", "2024 (Projection)", "2025 (Target)", "2026 (Target)"]
 avg_speed_kmh = [18.9, 18.6, 17.6, 17.1, 17.2, 17.2]
 
 fig1, ax1 = plt.subplots(figsize=(9.2, 5.4))
