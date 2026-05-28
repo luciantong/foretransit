@@ -3,8 +3,43 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 're
 import { divIcon } from 'leaflet'
 import './App.css'
 
-const API_ROOT = '/api'
+const API_ROOT = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 const MAP_RENDER_START_ZOOM = 14
+const MAP_RENDER_FADE_START_ZOOM = 12.0
+const MAP_RENDER_FADE_END_ZOOM = 14.4
+
+function buildApiUrl(path) {
+  if (/^https?:\/\//i.test(path)) {
+    return path
+  }
+  return `${API_ROOT}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+async function fetchJson(path) {
+  const endpoint = buildApiUrl(path)
+  const res = await fetch(endpoint, {
+    headers: {
+      Accept: 'application/json',
+    },
+  })
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`)
+  }
+
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const preview = (await res.text()).slice(0, 120).replace(/\s+/g, ' ').trim()
+    if (preview.startsWith('<')) {
+      throw new Error(
+        `Backend returned HTML instead of JSON for ${path}. Start API on 127.0.0.1:8000 and use frontend dev server proxy, or set VITE_API_BASE_URL=http://127.0.0.1:8000.`,
+      )
+    }
+    throw new Error(`Expected JSON response for ${path}, got content-type: ${contentType || 'unknown'}`)
+  }
+
+  return res.json()
+}
 
 function describeFetchError(error, endpointLabel) {
   if (error instanceof TypeError) {
@@ -58,7 +93,64 @@ function edgeFadeOpacity(stop, bounds) {
   return 0.22 + 0.78 * Math.min(latOpacity, lonOpacity)
 }
 
-function stationIcon(stop, isActive, opacity) {
+function zoomRevealOpacity(zoom) {
+  if (typeof zoom !== 'number' || Number.isNaN(zoom)) {
+    return 0
+  }
+  if (zoom <= MAP_RENDER_FADE_START_ZOOM) {
+    return 0
+  }
+  if (zoom >= MAP_RENDER_FADE_END_ZOOM) {
+    return 1
+  }
+
+  const t = (zoom - MAP_RENDER_FADE_START_ZOOM) / (MAP_RENDER_FADE_END_ZOOM - MAP_RENDER_FADE_START_ZOOM)
+  // Ease-out curve so stops become readable quickly once zooming in.
+  return 1 - (1 - t) * (1 - t)
+}
+
+function colorByScore(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) {
+    return '#0f172a'
+  }
+  if (score <= 50) {
+    return '#dc2626'
+  }
+  if (score <= 74) {
+    return '#eab308'
+  }
+  return '#16a34a'
+}
+
+function normalizeScoreFromForecast(data) {
+  const winnerScore = data?.magi?.selection_context?.winner_score_100
+  if (typeof winnerScore === 'number' && Number.isFinite(winnerScore)) {
+    return Math.max(0, Math.min(100, winnerScore))
+  }
+
+  const predicted = data?.current?.predicted
+  if (typeof predicted === 'number' && Number.isFinite(predicted) && predicted >= 0 && predicted <= 100) {
+    return predicted
+  }
+
+  const label = String(data?.current?.label || '').toLowerCase()
+  if (label === 'on_time') {
+    return 90
+  }
+  if (label === 'minor') {
+    return 68
+  }
+  if (label === 'moderate') {
+    return 42
+  }
+  if (label === 'severe') {
+    return 20
+  }
+
+  return null
+}
+
+function stationIcon(stop, isActive, opacity, outlineColor, isScoreLoading) {
   const modeClass = modeStyle(stop.mode)
   const fillClass =
     modeClass === 'railway'
@@ -66,10 +158,11 @@ function stationIcon(stop, isActive, opacity) {
         ? 'is-parent'
         : 'is-child'
       : 'is-bus'
+  const scoreClass = isScoreLoading ? 'is-score-loading' : ''
 
   return divIcon({
     className: 'station-marker',
-    html: `<div class="station-shape station-shape--${modeClass} ${fillClass} ${isActive ? 'is-active' : ''}" style="opacity:${opacity.toFixed(3)}"></div>`,
+    html: `<div class="station-shape station-shape--${modeClass} ${fillClass} ${scoreClass} ${isActive ? 'is-active' : ''}" style="opacity:${opacity.toFixed(3)};border-color:${outlineColor}"></div>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
     popupAnchor: [0, -10],
@@ -90,23 +183,19 @@ function FocusMapOnStop({ stop }) {
 }
 
 function MapViewTracker({ onViewChange }) {
+  const updateView = (map) => {
+    onViewChange({
+      zoom: map.getZoom(),
+      center: map.getCenter(),
+      bounds: map.getBounds(),
+    })
+  }
+
   useMapEvents({
-    moveend: (event) => {
-      const map = event.target
-      onViewChange({
-        zoom: map.getZoom(),
-        center: map.getCenter(),
-        bounds: map.getBounds(),
-      })
-    },
-    zoomend: (event) => {
-      const map = event.target
-      onViewChange({
-        zoom: map.getZoom(),
-        center: map.getCenter(),
-        bounds: map.getBounds(),
-      })
-    },
+    move: (event) => updateView(event.target),
+    zoom: (event) => updateView(event.target),
+    moveend: (event) => updateView(event.target),
+    zoomend: (event) => updateView(event.target),
   })
 
   return null
@@ -118,7 +207,10 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
   const [stops, setStops] = useState({ loading: true, error: '', items: [] })
   const [results, setResults] = useState({ loading: false, error: '', items: [] })
   const [mapView, setMapView] = useState({ zoom: 11, center: null, bounds: null })
+  const [scoreByStopId, setScoreByStopId] = useState({})
   const searchRef = useRef(null)
+  const pendingScoreRequestsRef = useRef(new Set())
+  const scoreRetryAfterRef = useRef(new Map())
 
   useEffect(() => {
     let cancelled = false
@@ -126,11 +218,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     async function loadStops() {
       setStops((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const res = await fetch(`${API_ROOT}/stops?limit=2500`)
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const data = await res.json()
+        const data = await fetchJson('/stops?limit=2500')
         if (!cancelled) {
           setStops({ loading: false, error: '', items: Array.isArray(data?.stops) ? data.stops : [] })
         }
@@ -179,11 +267,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
       setResults((prev) => ({ ...prev, loading: true, error: '' }))
 
       try {
-        const res = await fetch(`${API_ROOT}/stops/search?q=${encodeURIComponent(trimmed)}&limit=8`)
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const data = await res.json()
+        const data = await fetchJson(`/stops/search?q=${encodeURIComponent(trimmed)}&limit=8`)
         if (!cancelled) {
           setResults({
             loading: false,
@@ -209,7 +293,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
   }, [query])
 
   const visibleStops = useMemo(() => {
-    if (mapView.zoom < MAP_RENDER_START_ZOOM || !mapView.bounds) {
+    if (mapView.zoom < MAP_RENDER_FADE_START_ZOOM || !mapView.bounds) {
       return []
     }
 
@@ -241,6 +325,53 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
 
     return deduped
   }, [mapView.bounds, mapView.zoom, stops.items])
+
+  useEffect(() => {
+    const batchSize = 60
+    const nowMs = Date.now()
+    const missingStops = visibleStops
+      .filter((stop) => !Object.prototype.hasOwnProperty.call(scoreByStopId, stop.stop_id))
+      .filter((stop) => !pendingScoreRequestsRef.current.has(stop.stop_id))
+      .filter((stop) => {
+        const retryAfter = scoreRetryAfterRef.current.get(stop.stop_id) || 0
+        return retryAfter <= nowMs
+      })
+      .slice(0, batchSize)
+
+    if (missingStops.length === 0) {
+      return undefined
+    }
+
+    let cancelled = false
+
+    async function loadScores() {
+      const updates = {}
+
+      await Promise.all(
+        missingStops.map(async (stop) => {
+          pendingScoreRequestsRef.current.add(stop.stop_id)
+          try {
+            const data = await fetchJson(`/station/${encodeURIComponent(stop.stop_id)}`)
+            updates[stop.stop_id] = normalizeScoreFromForecast(data)
+            scoreRetryAfterRef.current.delete(stop.stop_id)
+          } catch {
+            scoreRetryAfterRef.current.set(stop.stop_id, Date.now() + 30000)
+          } finally {
+            pendingScoreRequestsRef.current.delete(stop.stop_id)
+          }
+        }),
+      )
+
+      if (!cancelled) {
+        setScoreByStopId((prev) => ({ ...prev, ...updates }))
+      }
+    }
+
+    loadScores()
+    return () => {
+      cancelled = true
+    }
+  }, [visibleStops, scoreByStopId])
 
   return (
     <main className="landing-shell">
@@ -307,12 +438,16 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
 
           {visibleStops.map((stop) => {
             const isActive = selectedStop?.stop_id === stop.stop_id
-            const opacity = isActive ? 1 : edgeFadeOpacity(stop, mapView.bounds)
+            const revealOpacity = zoomRevealOpacity(mapView.zoom)
+            const opacity = isActive ? 1 : edgeFadeOpacity(stop, mapView.bounds) * revealOpacity
+            const hasScore = Object.prototype.hasOwnProperty.call(scoreByStopId, stop.stop_id)
+            const score = scoreByStopId[stop.stop_id]
+            const outlineColor = colorByScore(score)
             return (
               <Marker
                 key={stop.stop_id}
                 position={[stop.lat, stop.lon]}
-                icon={stationIcon(stop, isActive, opacity)}
+                icon={stationIcon(stop, isActive, opacity, outlineColor, !hasScore)}
                 eventHandlers={{
                   click: () => onSelectStop(stop),
                 }}
@@ -333,8 +468,8 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
       </section>
 
       <p className="map-render-hint">
-        {mapView.zoom < MAP_RENDER_START_ZOOM
-          ? 'Zoom in to 50%+ to render likely-use stops.'
+        {mapView.zoom < MAP_RENDER_FADE_START_ZOOM
+          ? 'Zoom in to start revealing likely-use stops.'
           : `Rendering ${visibleStops.length} likely-use stops in the current view.`}
       </p>
     </main>
@@ -377,11 +512,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
     async function fetchWeather() {
       setLiveWeather((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const res = await fetch(`${API_ROOT}/weather/current`)
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const data = await res.json()
+        const data = await fetchJson('/weather/current')
         if (!cancelled) {
           if (data?.error) {
             setLiveWeather({ loading: false, error: data.error, data: null })
@@ -436,11 +567,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
       setResults((prev) => ({ ...prev, loading: true, error: '' }))
 
       try {
-        const res = await fetch(`${API_ROOT}/stops/search?q=${encodeURIComponent(trimmed)}&limit=8`)
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const data = await res.json()
+        const data = await fetchJson(`/stops/search?q=${encodeURIComponent(trimmed)}&limit=8`)
         if (!cancelled) {
           setResults({
             loading: false,
@@ -471,11 +598,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
     setForecast({ loading: true, error: '', data: null })
 
     try {
-      const res = await fetch(`${API_ROOT}/station/${encodeURIComponent(stop.stop_id)}`)
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const data = await fetchJson(`/station/${encodeURIComponent(stop.stop_id)}`)
       if (data?.error) {
         throw new Error(data.error)
       }

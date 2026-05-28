@@ -11,10 +11,17 @@ from models.MAGI import run_magi
 # ─── Load Static Data Once ───────────────────
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 
-stops_df      = pd.read_csv(f"{GTFS_PATH}/stops.txt")
-stop_times_df = pd.read_csv(f"{GTFS_PATH}/stop_times.txt")
-trips_df      = pd.read_csv(f"{GTFS_PATH}/trips.txt")
-routes_df     = pd.read_csv(f"{GTFS_PATH}/routes.txt")
+def safe_read_csv(path):
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return None
+
+
+stops_df = safe_read_csv(f"{GTFS_PATH}/stops.txt")
+stop_times_df = safe_read_csv(f"{GTFS_PATH}/stop_times.txt")
+trips_df = safe_read_csv(f"{GTFS_PATH}/trips.txt")
+routes_df = safe_read_csv(f"{GTFS_PATH}/routes.txt")
 
 # ─── Get Vehicles Near A Stop ────────────────
 def get_vehicles_near_stop(stop_lat, stop_lon, radius_km=0.25):
@@ -127,10 +134,10 @@ def _build_features(mode_delays, weather, now):
 
 # ─── Bike Share Toronto ───────────────────────
 def get_nearby_bikeshare(stop_lat, stop_lon, radius_km=0.3):
-    import requests
-    GBFS_INFO   = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_information"
-    GBFS_STATUS = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_status"
     try:
+        import requests
+        GBFS_INFO   = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_information"
+        GBFS_STATUS = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_status"
         info   = requests.get(GBFS_INFO,   timeout=3).json()
         status = requests.get(GBFS_STATUS, timeout=3).json()
         coords = {
@@ -160,6 +167,11 @@ def get_nearby_bikeshare(stop_lat, stop_lon, radius_km=0.3):
 
 # ─── Main: Get Station Forecast ──────────────
 def get_station_forecast(stop_id):
+    if stops_df is None:
+        return {
+            "error": "GTFS stops file is missing. Please refresh static data and retry.",
+            "details": f"Missing required file in {GTFS_PATH}: stops.txt",
+        }
 
     # 1. Get stop info
     stop = stops_df[stops_df["stop_id"] == int(stop_id)]
@@ -194,11 +206,28 @@ def get_station_forecast(stop_id):
             seen_vehicle_ids.add(vid)
 
             # ── Detect mode ──
-            route_info = routes_df[
-                routes_df["route_id"].astype(str) == str(route_tag)]
-            route_type = int(route_info["route_type"].iloc[0]) \
-                         if not route_info.empty else 3
+            if routes_df is not None:
+                route_info = routes_df[
+                    routes_df["route_id"].astype(str) == str(route_tag)]
+                route_type = int(route_info["route_type"].iloc[0]) \
+                             if not route_info.empty else 3
+            else:
+                route_type = 3
             mode = classify_mode(route_type)
+
+            # Degraded mode: if schedule files are unavailable, keep vehicle-level
+            # signal using zero-delay features instead of failing the endpoint.
+            if stop_times_df is None or trips_df is None:
+                delays_by_mode[mode].append({
+                    "vehicle_id":     vid,
+                    "route_id":       route_tag,
+                    "direction_id":   -1,
+                    "delay_seconds":  0,
+                    "speed_kmh":      speed,
+                    "mode":           mode,
+                    "scheduled_time": None,
+                })
+                continue
 
             # ── Direction-aware schedule lookup ──
             # Use direction_id from trips to avoid matching
@@ -208,6 +237,15 @@ def get_station_forecast(stop_id):
             ][["trip_id", "direction_id"]]
 
             if route_trips.empty:
+                delays_by_mode[mode].append({
+                    "vehicle_id":     vid,
+                    "route_id":       route_tag,
+                    "direction_id":   -1,
+                    "delay_seconds":  0,
+                    "speed_kmh":      speed,
+                    "mode":           mode,
+                    "scheduled_time": None,
+                })
                 continue
 
             # Filter stop_times to trips that serve this stop

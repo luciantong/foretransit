@@ -243,30 +243,41 @@ def current_weather():
         now = datetime.now()
         current_hour = now.strftime("%Y-%m-%dT%H:00")
         times = weather.get("hourly", {}).get("time", [])
+        hourly = weather.get("hourly", {})
+
+        if not times:
+            return {
+                "error": "Weather data unavailable",
+                "details": "No hourly timestamps in weather file",
+            }
+
+        def at(values, idx):
+            arr = values if isinstance(values, list) else []
+            return arr[idx] if 0 <= idx < len(arr) else None
+
+        warning = None
 
         if current_hour in times:
             idx = times.index(current_hour)
-            hourly = weather.get("hourly", {})
-            return {
-                "temperature_c": hourly.get("temperature_2m", [None])[idx],
-                "rain_mm": hourly.get("rain", [None])[idx],
-                "snow_mm": hourly.get("snowfall", [None])[idx],
-                "wind_kmh": hourly.get("windspeed_10m", [None])[idx],
-                "visibility_m": hourly.get("visibility", [None])[idx],
-                "observed_hour": current_hour,
-                "source": "weather_latest.json",
-            }
+            observed_hour = current_hour
+        else:
+            earlier = [t for t in times if t <= current_hour]
+            observed_hour = earlier[-1] if earlier else times[-1]
+            idx = times.index(observed_hour)
+            warning = "Using nearest available hour from weather file"
 
-        return {
-            "temperature_c": None,
-            "rain_mm": None,
-            "snow_mm": None,
-            "wind_kmh": None,
-            "visibility_m": None,
-            "observed_hour": current_hour,
+        response = {
+            "temperature_c": at(hourly.get("temperature_2m"), idx),
+            "rain_mm": at(hourly.get("rain"), idx),
+            "snow_mm": at(hourly.get("snowfall"), idx),
+            "wind_kmh": at(hourly.get("windspeed_10m"), idx),
+            "visibility_m": at(hourly.get("visibility"), idx),
+            "observed_hour": observed_hour,
             "source": "weather_latest.json",
-            "warning": "Current hour not found in weather file",
         }
+        if warning:
+            response["warning"] = warning
+        return response
     except Exception as exc:
         return {
             "error": "Weather data unavailable",

@@ -3,15 +3,28 @@ import json
 import math
 from datetime import datetime, timedelta
 
-stops_df      = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stops.txt")
-stop_times_df = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/stop_times.txt")
-trips_df      = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/trips.txt")
-routes_df     = pd.read_csv("data/raw/gtfs_static/TTC Routes and Schedules Data/routes.txt")
+GTFS_STATIC_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 
-with open("data/raw/gtfs_realtime/vehicles_latest.json", "r") as f:
-    gtfs_rt_data = json.load(f)
 
-vehicles     = gtfs_rt_data["data"]["vehicle"]       # fixed key
+def safe_read_csv(path):
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return None
+
+
+stops_df = safe_read_csv(f"{GTFS_STATIC_PATH}/stops.txt")
+stop_times_df = safe_read_csv(f"{GTFS_STATIC_PATH}/stop_times.txt")
+trips_df = safe_read_csv(f"{GTFS_STATIC_PATH}/trips.txt")
+routes_df = safe_read_csv(f"{GTFS_STATIC_PATH}/routes.txt")
+
+try:
+    with open("data/raw/gtfs_realtime/vehicles_latest.json", "r") as f:
+        gtfs_rt_data = json.load(f)
+except Exception:
+    gtfs_rt_data = {"data": {"vehicle": []}, "timestamp": ""}
+
+vehicles = gtfs_rt_data.get("data", {}).get("vehicle", [])
 capture_time = gtfs_rt_data.get("timestamp", "")     # fixed key
 
 # ─── Haversine ───────────────────────────────
@@ -27,6 +40,8 @@ def haversine(lat1, lon1, lat2, lon2):
 
 # ─── Nearest stop ────────────────────────────
 def find_nearest_stop(lat, lon):
+    if stops_df is None or stops_df.empty:
+        raise ValueError("stops.txt is missing or empty")
     stops_df["dist"] = stops_df.apply(
         lambda r: haversine(lat, lon,
                             r["stop_lat"],

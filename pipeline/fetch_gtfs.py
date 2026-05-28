@@ -7,7 +7,7 @@ from datetime import datetime
 
 GTFS_RT_VEHICLES = "https://retro.umoiq.com/service/publicJSONFeed?command=vehicleLocations&a=ttc"
 
-WEATHER_URL = "https://api.open-meteo.com/v1/forecast?latitude=43.6532&longitude=-79.3832&hourly=rain,snowfall,windspeed_10m,visibility,temperature_2m&forecast_days=1"
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast?latitude=43.6532&longitude=-79.3832&hourly=rain,snowfall,windspeed_10m,visibility,temperature_2m&forecast_days=2&timezone=America%2FToronto"
 
 RT_DIR = "data/raw/gtfs_realtime"
 WEATHER_DIR = "data/raw/weather"
