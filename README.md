@@ -304,7 +304,7 @@ print(df[['stop_id', 'stop_name']].head(30))
 
 Below is the Python code used to generate the system overview analysis, proving why Toronto's scale and multimodal complexity require locally-calibrated models.
 
-```python
+``` TTC system chart showing the importance of Toronto's local context
 """
 TTC System Overview 2024 - Horizontal Bar Chart
 Supports the argument that Toronto's transit delay context requires locally-calibrated models
@@ -381,10 +381,10 @@ plt.subplots_adjust(top=0.86, bottom=0.14)
 plt.savefig('outputs/ttc_system_overview_chart.png', dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
 plt.show()
 
-"""
-## Methodologies & Figures
+```
+## TTC Bus Average Speed
 
-```python
+```
 # Methodology Figures — Tier 2 Indicators from TTC Sources (No APC data)
 # Updated commercial speed series based on TTC Corporate Plan figures provided:
 # 2019 Actual: 18.9 km/h
@@ -444,7 +444,13 @@ plt.close(fig1)
 
 ### Generated Output
 ![TTC System Overview](outputs/ttc_system_overview_chart.png)
+```
 
+---
+
+Monthly Toronto Subway Disruption in 2025
+
+```
 # TTC Subway Delay Data Analysis - Monthly Disruptions in 2025
 # This script analyzes subway delay incidents from the City of Toronto Open Data
 
@@ -596,7 +602,7 @@ plt.subplots_adjust(bottom=0.15)
 # plt.savefig("ttc_subway_disruptions_2025.png", dpi=300, bbox_inches="tight")
 plt.show()
 
-
+```
 ---
 
 ## Academic references
