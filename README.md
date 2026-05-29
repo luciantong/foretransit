@@ -445,6 +445,158 @@ plt.close(fig1)
 ### Generated Output
 ![TTC System Overview](outputs/ttc_system_overview_chart.png)
 
+# TTC Subway Delay Data Analysis - Monthly Disruptions in 2025
+# This script analyzes subway delay incidents from the City of Toronto Open Data
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =============================================================================
+# STEP 1: Load the TTC Subway Delay Data CSV file
+# =============================================================================
+file_path = "TTC Subway Delay Data since 2025.csv"  # your filename
+df = pd.read_csv(file_path)
+
+print("Dataset loaded successfully!")
+print(f"Total records: {len(df)}")
+print(f"Columns: {list(df.columns)}\n")
+
+# =============================================================================
+# STEP 2: Identify and convert the date column to datetime (no deprecated args)
+# =============================================================================
+if "Date" in df.columns:
+    date_column = "Date"
+elif "Report Date" in df.columns:
+    date_column = "Report Date"
+else:
+    date_candidates = [c for c in df.columns if "date" in c.lower()]
+    if date_candidates:
+        date_column = date_candidates[0]
+    else:
+        raise ValueError("No date-like column found. Please verify the CSV headers.")
+
+print(f"Using date column: '{date_column}'")
+
+# First pass parse
+df[date_column] = pd.to_datetime(df[date_column], errors="coerce", dayfirst=False)
+
+# Optional second pass for potential day-first formats if many failed
+if df[date_column].isna().mean() > 0.5:
+    mask_nat = df[date_column].isna()
+    df.loc[mask_nat, date_column] = pd.to_datetime(df.loc[mask_nat, date_column], errors="coerce", dayfirst=True)
+
+# Drop rows where parsing failed
+initial_count = len(df)
+df = df.dropna(subset=[date_column])
+print(f"Records after removing invalid dates: {len(df)} (removed {initial_count - len(df)})\n")
+
+# =============================================================================
+# STEP 3: Filter the data to include only records from 2025
+# =============================================================================
+df_2025 = df[df[date_column].dt.year == 2025].copy()
+print(f"Records from 2025: {len(df_2025)}\n")
+
+if df_2025.empty:
+    print("WARNING: No records found for 2025. Available years in the dataset:")
+    print(df[date_column].dt.year.value_counts().sort_index())
+    raise ValueError("No 2025 data available for analysis.")
+
+# =============================================================================
+# STEP 4: Group the data by month
+# =============================================================================
+df_2025["YearMonth"] = df_2025[date_column].dt.to_period("M")
+
+# =============================================================================
+# STEP 5: Count the number of subway delay incidents per month
+# =============================================================================
+monthly_counts = df_2025.groupby("YearMonth").size().reset_index(name="Disruptions")
+monthly_counts = monthly_counts.sort_values("YearMonth")
+monthly_counts["MonthLabel"] = monthly_counts["YearMonth"].apply(lambda x: x.strftime("%B %Y"))
+monthly_counts["MonthShort"] = monthly_counts["YearMonth"].apply(lambda x: x.strftime("%b"))
+
+# Optional: ensure all months Jan–Dec appear (fill missing with 0)
+# full_months = pd.period_range("2025-01", "2025-12", freq="M")
+# monthly_counts = (
+#     monthly_counts.set_index("YearMonth")
+#     .reindex(full_months, fill_value=0)
+#     .rename_axis("YearMonth")
+#     .reset_index()
+# )
+# monthly_counts["MonthLabel"] = monthly_counts["YearMonth"].apply(lambda x: x.strftime("%B %Y"))
+# monthly_counts["MonthShort"] = monthly_counts["YearMonth"].apply(lambda x: x.strftime("%b"))
+
+# =============================================================================
+# Print the monthly disruption table
+# =============================================================================
+print("=" * 50)
+print("MONTHLY TTC SUBWAY DISRUPTIONS IN 2025")
+print("=" * 50)
+
+table_display = monthly_counts[["MonthLabel", "Disruptions"]].copy()
+table_display.columns = ["Month", "Number of Disruptions"]
+table_display = table_display.reset_index(drop=True)
+
+print(table_display.to_string(index=False))
+print("-" * 50)
+print(f"Total disruptions in 2025: {monthly_counts['Disruptions'].sum()}")
+print(f"Average per month: {monthly_counts['Disruptions'].mean():.1f}")
+print(f"Highest: {monthly_counts.loc[monthly_counts['Disruptions'].idxmax(), 'MonthLabel']} "
+      f"({monthly_counts['Disruptions'].max()} incidents)")
+print(f"Lowest: {monthly_counts.loc[monthly_counts['Disruptions'].idxmin(), 'MonthLabel']} "
+      f"({monthly_counts['Disruptions'].min()} incidents)")
+print("=" * 50 + "\n")
+
+# =============================================================================
+# STEP 6: Create a bar chart suitable for academic reports
+# =============================================================================
+plt.style.use("seaborn-v0_8-whitegrid")
+fig, ax = plt.subplots(figsize=(12, 7))
+
+bars = ax.bar(
+    monthly_counts["MonthShort"],
+    monthly_counts["Disruptions"],
+    color="#1f77b4",
+    edgecolor="black",
+    linewidth=0.7,
+    alpha=0.9
+)
+
+for bar, value in zip(bars, monthly_counts["Disruptions"]):
+    ax.annotate(
+        f"{value:,}",
+        xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+        xytext=(0, 5),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+        fontsize=10
+    )
+
+ax.set_title("Monthly TTC Subway Disruptions in 2025", fontsize=16, fontweight="bold", pad=20)
+ax.set_xlabel("Month", fontsize=12, labelpad=10)
+ax.set_ylabel("Number of Subway Disruptions", fontsize=12, labelpad=10)
+plt.xticks(rotation=45, ha="right", fontsize=11)
+plt.yticks(fontsize=11)
+ax.yaxis.grid(True, linestyle="--", alpha=0.7)
+ax.set_axisbelow(True)
+ax.set_ylim(0, max(5, monthly_counts["Disruptions"].max()) * 1.15)
+
+fig.text(
+    0.5, 0.02,
+    "Data Source: City of Toronto Open Data - TTC Subway Delay Data",
+    ha="center",
+    fontsize=9,
+    style="italic",
+    color="gray"
+)
+
+plt.tight_layout()
+plt.subplots_adjust(bottom=0.15)
+
+# plt.savefig("ttc_subway_disruptions_2025.png", dpi=300, bbox_inches="tight")
+plt.show()
+
+
 ---
 
 ## Academic references
