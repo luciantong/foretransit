@@ -387,6 +387,8 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
   const [stops, setStops] = useState({ loading: true, error: '', items: [] })
   const [results, setResults] = useState({ loading: false, error: '', items: [] })
   const [bikeCatalog, setBikeCatalog] = useState({ loading: true, error: '', items: [] })
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastRefreshAt, setLastRefreshAt] = useState(null)
   const [mapView, setMapView] = useState({ zoom: 11, center: null, bounds: null })
   const [scoreByStopId, setScoreByStopId] = useState({})
   const searchRef = useRef(null)
@@ -632,6 +634,57 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
     }
   }, [mapView.center, visibleStops])
 
+  async function refreshMapData() {
+    if (isRefreshing) {
+      return
+    }
+
+    setIsRefreshing(true)
+    setStops((prev) => ({ ...prev, loading: true, error: '' }))
+    setBikeCatalog((prev) => ({ ...prev, loading: true, error: '' }))
+    pendingScoreRequestsRef.current.clear()
+    scoreRetryAfterRef.current.clear()
+    setScoreByStopId({})
+
+    try {
+      const [stopsResult, bikesResult] = await Promise.allSettled([fetchJson('/stops?limit=5000'), fetchJson('/bikeshare/stations?limit=5000')])
+
+      if (stopsResult.status === 'fulfilled') {
+        setStops({
+          loading: false,
+          error: '',
+          items: Array.isArray(stopsResult.value?.stops) ? stopsResult.value.stops : [],
+        })
+      } else {
+        setStops((prev) => ({
+          loading: false,
+          error: describeFetchError(stopsResult.reason, '/stops'),
+          items: prev.items,
+        }))
+      }
+
+      if (bikesResult.status === 'fulfilled') {
+        const bikes = Array.isArray(bikesResult.value?.stations)
+          ? bikesResult.value.stations.filter(
+              (bike) => typeof bike?.lat === 'number' && Number.isFinite(bike.lat) && typeof bike?.lon === 'number' && Number.isFinite(bike.lon),
+            )
+          : []
+
+        setBikeCatalog({ loading: false, error: '', items: bikes })
+      } else {
+        setBikeCatalog((prev) => ({
+          loading: false,
+          error: describeFetchError(bikesResult.reason, '/bikeshare/stations'),
+          items: prev.items,
+        }))
+      }
+
+      setLastRefreshAt(new Date())
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   return (
     <main className="landing-shell">
       <section className="landing-top">
@@ -689,6 +742,9 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
           <button type="button" className="open-forecast-btn" onClick={onEnterForecast} disabled={!selectedStop}>
             {selectedStop ? `Open forecast for ${selectedStop.stop_name}` : 'Select a station'}
           </button>
+          <button type="button" className="refresh-data-btn" onClick={refreshMapData} disabled={isRefreshing}>
+            {isRefreshing ? 'Refreshing...' : 'Refresh data'}
+          </button>
           <div className="mode-filter-dropdown" ref={modeFilterRef}>
             <button
               type="button"
@@ -717,6 +773,9 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
         </div>
         {stops.error ? <p className="search-error">{stops.error}</p> : null}
         {bikeCatalog.error ? <p className="search-error">{bikeCatalog.error}</p> : null}
+        {lastRefreshAt ? (
+          <p className="refresh-note">Last refreshed {lastRefreshAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+        ) : null}
       </section>
 
       <section className="map-box">
