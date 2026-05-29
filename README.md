@@ -304,7 +304,9 @@ print(df[['stop_id', 'stop_name']].head(30))
 
 Below is the Python code used to generate the system overview analysis, proving why Toronto's scale and multimodal complexity require locally-calibrated models.
 
-``` TTC system chart showing the importance of Toronto's local context
+## TTC system chart showing the importance of Toronto's local context
+
+``` 
 """
 TTC System Overview 2024 - Horizontal Bar Chart
 Supports the argument that Toronto's transit delay context requires locally-calibrated models
@@ -448,7 +450,7 @@ plt.close(fig1)
 
 ---
 
-Monthly Toronto Subway Disruption in 2025
+## Monthly Toronto Subway Disruption in 2025
 
 ```
 # TTC Subway Delay Data Analysis - Monthly Disruptions in 2025
