@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.cache import get as cache_get, set as cache_set, stats as cache_stats
+from functools import lru_cache
 import json
 import re
 import pandas as pd
@@ -100,6 +101,31 @@ def classify_station_mode(station_name: str) -> str:
     return "bus"
 
 
+@lru_cache(maxsize=1)
+def build_route_stop_sets() -> tuple[set[str], set[str]]:
+    try:
+        routes_df = pd.read_csv(ROUTES_PATH, usecols=["route_id", "route_type"]).dropna()
+        trips_df = pd.read_csv(TRIPS_PATH, usecols=["trip_id", "route_id"]).dropna()
+        stop_times_df = pd.read_csv(STOP_TIMES_PATH, usecols=["trip_id", "stop_id"]).dropna()
+    except Exception:
+        return set(), set()
+
+    route_types = pd.to_numeric(routes_df["route_type"], errors="coerce")
+    rail_route_ids = set(routes_df.loc[route_types == 1, "route_id"].astype(str))
+    light_rail_route_ids = set(routes_df.loc[route_types == 0, "route_id"].astype(str))
+
+    rail_trip_ids = set(trips_df[trips_df["route_id"].astype(str).isin(rail_route_ids)]["trip_id"].astype(str))
+    light_rail_trip_ids = set(
+        trips_df[trips_df["route_id"].astype(str).isin(light_rail_route_ids)]["trip_id"].astype(str)
+    )
+
+    rail_stop_ids = set(stop_times_df[stop_times_df["trip_id"].astype(str).isin(rail_trip_ids)]["stop_id"].astype(str))
+    light_rail_stop_ids = set(
+        stop_times_df[stop_times_df["trip_id"].astype(str).isin(light_rail_trip_ids)]["stop_id"].astype(str)
+    )
+    return rail_stop_ids, light_rail_stop_ids
+
+
 def is_ttc_train_station_name(stop_name: str) -> bool:
     name = str(stop_name).lower().strip()
     if "go station" in name:
@@ -123,34 +149,51 @@ def build_stop_mode_map(stops_df: pd.DataFrame) -> dict:
     df["location_type"] = pd.to_numeric(df.get("location_type", 0), errors="coerce").fillna(0).astype(int)
     df["parent_station"] = df.get("parent_station", "").fillna("").astype(str)
 
+    rail_stop_ids, light_rail_stop_ids = build_route_stop_sets()
+
+    def infer_station_mode(stop_id: str, stop_name: str) -> str:
+        name = str(stop_name).lower()
+        if stop_id in rail_stop_ids or is_ttc_train_station_name(name) or re.search(r"\s-\s.*station\b", name):
+            return "railway"
+        if stop_id in light_rail_stop_ids or any(keyword in name for keyword in LIGHT_RAIL_KEYWORDS):
+            return "light_rail"
+        return "bus"
+
     station_rows = df[df["location_type"] == 1]
     station_mode_by_id = {
-        row.stop_id: classify_station_mode(row.stop_name)
+        row.stop_id: infer_station_mode(row.stop_id, row.stop_name)
         for row in station_rows.itertuples(index=False)
     }
 
     mode_by_stop_id = {}
     for row in df.itertuples(index=False):
+        stop_id = str(row.stop_id)
         if row.location_type == 1:
-            mode_by_stop_id[row.stop_id] = station_mode_by_id.get(row.stop_id, "bus")
+            mode_by_stop_id[stop_id] = station_mode_by_id.get(stop_id, infer_station_mode(stop_id, row.stop_name))
             continue
 
         parent_id = str(row.parent_station).strip()
         if parent_id and parent_id in station_mode_by_id:
-            mode_by_stop_id[row.stop_id] = station_mode_by_id[parent_id]
+            mode_by_stop_id[stop_id] = station_mode_by_id[parent_id]
             continue
 
         name = str(row.stop_name).lower()
         if is_ttc_train_station_name(name):
-            mode_by_stop_id[row.stop_id] = "railway"
+            mode_by_stop_id[stop_id] = "railway"
             continue
         if re.search(r"\s-\s.*station\b", name) and "go station" not in name:
-            mode_by_stop_id[row.stop_id] = "railway"
+            mode_by_stop_id[stop_id] = "railway"
+            continue
+        if stop_id in rail_stop_ids:
+            mode_by_stop_id[stop_id] = "railway"
+            continue
+        if stop_id in light_rail_stop_ids:
+            mode_by_stop_id[stop_id] = "light_rail"
             continue
         if any(keyword in name for keyword in LIGHT_RAIL_KEYWORDS):
-            mode_by_stop_id[row.stop_id] = "light_rail"
+            mode_by_stop_id[stop_id] = "light_rail"
         else:
-            mode_by_stop_id[row.stop_id] = "bus"
+            mode_by_stop_id[stop_id] = "bus"
 
     return mode_by_stop_id
 
@@ -282,6 +325,57 @@ def current_weather():
         return {
             "error": "Weather data unavailable",
             "details": str(exc),
+        }
+
+
+@app.get("/bikeshare/stations")
+def bikeshare_stations(limit: int = 2500):
+    try:
+        import requests
+
+        info_url = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_information"
+        status_url = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_status"
+
+        info = requests.get(info_url, timeout=5).json()
+        status = requests.get(status_url, timeout=5).json()
+
+        info_stations = info.get("data", {}).get("stations", [])
+        status_stations = status.get("data", {}).get("stations", [])
+        status_by_id = {str(s.get("station_id")): s for s in status_stations}
+
+        rows = []
+        for station in info_stations:
+            sid = str(station.get("station_id"))
+            if not sid:
+                continue
+
+            live = status_by_id.get(sid, {})
+            lat = station.get("lat")
+            lon = station.get("lon")
+            if lat is None or lon is None:
+                continue
+
+            rows.append(
+                {
+                    "station_id": sid,
+                    "name": station.get("name", "Bike Share station"),
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "bikes_available": int(live.get("num_bikes_available", 0) or 0),
+                    "ebikes_available": int(live.get("num_ebikes_available", 0) or 0),
+                    "docks_available": int(live.get("num_docks_available", 0) or 0),
+                    "is_renting": bool(live.get("is_renting", 0)),
+                    "mode": "bike",
+                }
+            )
+
+        capped = rows[: max(1, min(limit, 5000))]
+        return {"stations": capped}
+    except Exception as exc:
+        return {
+            "error": "Bike Share data unavailable",
+            "details": str(exc),
+            "stations": [],
         }
 
 

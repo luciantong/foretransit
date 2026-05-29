@@ -1,5 +1,6 @@
 import pandas as pd
 import json
+import hashlib
 from collections import Counter
 from datetime import datetime
 from pipeline.utils import (
@@ -75,24 +76,75 @@ def get_current_weather():
         "temperature": 10
     }
 
+def _stable_section_id(route_id):
+    text = str(route_id or "unknown")
+    digest = hashlib.md5(text.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % 100
+
+
+def _factor_tone_from_score(score_100):
+    if score_100 >= 70:
+        return "positive"
+    if score_100 <= 44:
+        return "negative"
+    return "neutral"
+
+
+def _factor_color_from_score(score_100):
+    if score_100 >= 70:
+        return "green"
+    if score_100 <= 44:
+        return "red"
+    return "yellow"
+
+
+def _make_factor(label, impact, score_100):
+    score_value = int(max(0, min(100, round(score_100))))
+    return {
+        "factor": label,
+        "impact": impact,
+        "score_100": score_value,
+        "tone": _factor_tone_from_score(score_value),
+        "color": _factor_color_from_score(score_value),
+    }
+
+
 # ─── Get Top Delay Factors ───────────────────
-def get_top_factors(delay_seconds, weather, speed):
+def get_top_factors(delay_seconds, weather, speed, vehicle_count=0):
     factors = []
-    if delay_seconds > 180:
-        factors.append({"factor": "High dwell time",                "impact": "high"})
+    if delay_seconds > 300:
+        factors.append(_make_factor("High dwell time", "high", 20))
+    elif delay_seconds > 180:
+        factors.append(_make_factor("Elevated dwell time", "medium", 35))
+
     if weather["snow"] > 0:
-        factors.append({"factor": f"Snowfall {weather['snow']}cm",  "impact": "high"})
-    if weather["rain"] > 1:
-        factors.append({"factor": f"Rain {weather['rain']}mm",      "impact": "medium"})
-    if weather["wind"] > 30:
-        factors.append({"factor": f"Wind {weather['wind']}km/h",    "impact": "medium"})
-    if 0 < speed < 5:                       # guard: 0 means no data, not slow
-        factors.append({"factor": "Very slow traffic",              "impact": "high"})
+        factors.append(_make_factor(f"Snowfall {weather['snow']}cm", "high", 22))
+    if weather["rain"] > 5:
+        factors.append(_make_factor(f"Heavy rain {weather['rain']}mm", "high", 28))
+    elif weather["rain"] > 1:
+        factors.append(_make_factor(f"Rain {weather['rain']}mm", "medium", 42))
+
+    if weather["wind"] > 45:
+        factors.append(_make_factor(f"Strong wind {weather['wind']}km/h", "high", 30))
+    elif weather["wind"] > 30:
+        factors.append(_make_factor(f"Wind {weather['wind']}km/h", "medium", 45))
+
+    if 0 < speed < 5:  # guard: 0 means no data, not slow
+        factors.append(_make_factor("Very slow traffic", "high", 24))
+
+    if vehicle_count >= 8:
+        factors.append(_make_factor(f"High nearby vehicle volume ({vehicle_count})", "medium", 40))
+    elif 0 < vehicle_count <= 2 and delay_seconds < 180:
+        factors.append(_make_factor(f"Few vehicles nearby ({vehicle_count})", "low", 82))
+
     dow = datetime.now().strftime("%A")
     if dow == "Monday":
-        factors.append({"factor": "Monday peak",                    "impact": "medium"})
+        factors.append(_make_factor("Monday peak demand", "medium", 46))
     if dow == "Sunday":
-        factors.append({"factor": "Sunday — historically low delay","impact": "low"})
+        factors.append(_make_factor("Sunday pattern usually lowers delay", "low", 78))
+
+    if not factors:
+        return [_make_factor("No strong confounding factors detected right now", "low", 76)]
     return factors[:3]
 
 # ─── Build MAGI features for one mode group ──
@@ -113,6 +165,9 @@ def _build_features(mode_delays, weather, now):
     else:
         avg_gap = 0
 
+    route_ids = [str(d.get("route_id", "")).strip() for d in mode_delays if d.get("route_id") is not None]
+    section_source = route_ids[0] if route_ids else "unknown"
+
     return {
         "delay_seconds":         avg_delay,
         "gap_seconds":           avg_gap,
@@ -129,6 +184,7 @@ def _build_features(mode_delays, weather, now):
         "is_peak_hour":          int(7 <= now.hour <= 9 or 16 <= now.hour <= 18),
         "is_sunday":             int(now.weekday() == 6),
         "day_of_week":           now.weekday(),
+        "section_id":            _stable_section_id(section_source),
         "mode":                  mode_delays[0]["mode"]
     }
 
@@ -155,6 +211,8 @@ def get_nearby_bikeshare(stop_lat, stop_lon, radius_km=0.3):
                 nearby.append({
                     "station_id":       sid,
                     "name":             name,
+                    "lat":              lat,
+                    "lon":              lon,
                     "dist_km":          round(dist, 3),
                     "bikes_available":  s["num_bikes_available"],
                     "ebikes_available": s.get("num_ebikes_available", 0),
@@ -319,7 +377,7 @@ def get_station_forecast(stop_id):
             "delay_min":    round(avg_delay / 60, 1),
             "gap_min":      round(avg_gap / 60, 1) if len(mode_delays) >= 2 else None,
             "num_vehicles": len(mode_delays),
-            "top_factors":  get_top_factors(avg_delay, weather, avg_speed),
+            "top_factors":  get_top_factors(avg_delay, weather, avg_speed, len(mode_delays)),
             "vehicles":     safe_delays,
             "magi":         magi_result
         }
@@ -345,6 +403,7 @@ def get_station_forecast(stop_id):
         "commercial_speed": 0, "hour_of_day": now.hour,
         "is_peak_hour": int(7 <= now.hour <= 9 or 16 <= now.hour <= 18),
         "is_sunday": int(now.weekday() == 6), "day_of_week": now.weekday(),
+        "section_id": _stable_section_id(str(stop_id)),
         "mode": dominant_mode
     }
     overall_magi = run_magi(overall_features)
@@ -373,7 +432,7 @@ def get_station_forecast(stop_id):
         "bikeshare": bikeshare,
 
         "top_factors": get_top_factors(
-            overall_avg_delay, weather, overall_avg_speed),
+            overall_avg_delay, weather, overall_avg_speed, len(all_delays)),
         "weather":     weather,
         "magi":        overall_magi
     }

@@ -7,6 +7,11 @@ const API_ROOT = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '
 const MAP_RENDER_START_ZOOM = 14
 const MAP_RENDER_FADE_START_ZOOM = 12.0
 const MAP_RENDER_FADE_END_ZOOM = 14.4
+const TRANSIT_MODE_OPTIONS = [
+  { value: 'railway', label: 'Train stations' },
+  { value: 'bus', label: 'Bus stops' },
+  { value: 'bike', label: 'Bikeshare stations' },
+]
 
 function buildApiUrl(path) {
   if (/^https?:\/\//i.test(path)) {
@@ -65,7 +70,20 @@ function modeStyle(mode) {
   if (mode === 'railway') {
     return 'railway'
   }
+  if (mode === 'light_rail' || mode === 'light-rail') {
+    return 'railway'
+  }
+  if (mode === 'bike') {
+    return 'bike'
+  }
   return 'bus'
+}
+
+function normalizeTransitFilterMode(mode) {
+  if (mode === 'light_rail' || mode === 'light-rail') {
+    return 'railway'
+  }
+  return mode
 }
 
 function edgeFadeOpacity(stop, bounds) {
@@ -122,6 +140,139 @@ function colorByScore(score) {
   return '#16a34a'
 }
 
+function colorByBikeAvailability(bikesAvailable) {
+  if (typeof bikesAvailable !== 'number' || Number.isNaN(bikesAvailable)) {
+    return '#64748b'
+  }
+  if (bikesAvailable <= 2) {
+    return '#dc2626'
+  }
+  if (bikesAvailable <= 6) {
+    return '#eab308'
+  }
+  return '#16a34a'
+}
+
+function factorToneClass(factor) {
+  if (factor?.tone === 'positive' || (typeof factor?.score_100 === 'number' && factor.score_100 >= 70)) {
+    return 'factor-item--positive'
+  }
+  if (factor?.tone === 'negative' || (typeof factor?.score_100 === 'number' && factor.score_100 <= 44)) {
+    return 'factor-item--negative'
+  }
+  return 'factor-item--neutral'
+}
+
+function factorValueLabel(factor) {
+  if (typeof factor?.display_value === 'string' && factor.display_value.trim()) {
+    return factor.display_value
+  }
+  if (typeof factor?.factor === 'string' && factor.factor.trim()) {
+    return factor.factor
+  }
+  return 'n/a'
+}
+
+function transitTagLabel(mode) {
+  if (modeStyle(mode) === 'railway') {
+    return 'Train'
+  }
+  if (modeStyle(mode) === 'bike') {
+    return 'Bike'
+  }
+  return 'Bus'
+}
+
+function scoreBand(score) {
+  if (score >= 70) {
+    return { score_100: score, tone: 'positive', impact: 'low' }
+  }
+  if (score <= 44) {
+    return { score_100: score, tone: 'negative', impact: 'high' }
+  }
+  return { score_100: score, tone: 'neutral', impact: 'medium' }
+}
+
+function buildModelConsideration(inputKey, inputValue) {
+  switch (inputKey) {
+    case 'delay_seconds': {
+      const delay = Number(inputValue || 0)
+      const displayValue = `${Math.round(delay / 60)} min`
+      if (delay < 60) return { factor: 'Delay', display_value: displayValue, ...scoreBand(86) }
+      if (delay < 180) return { factor: 'Delay', display_value: displayValue, ...scoreBand(62) }
+      if (delay < 300) return { factor: 'Delay', display_value: displayValue, ...scoreBand(42) }
+      return { factor: 'Delay', display_value: displayValue, ...scoreBand(24) }
+    }
+    case 'gap_seconds': {
+      const gap = Number(inputValue || 0)
+      const displayValue = `${Math.round(gap / 60)} min`
+      if (gap <= 120) return { factor: 'Headway gap', display_value: displayValue, ...scoreBand(82) }
+      if (gap <= 420) return { factor: 'Headway gap', display_value: displayValue, ...scoreBand(58) }
+      return { factor: 'Headway gap', display_value: displayValue, ...scoreBand(34) }
+    }
+    case 'cumulative_dwell_time': {
+      const dwell = Number(inputValue || 0)
+      const displayValue = `${dwell.toFixed(1)} min`
+      if (dwell <= 2) return { factor: 'Cumulative dwell time', display_value: displayValue, ...scoreBand(80) }
+      if (dwell <= 5) return { factor: 'Cumulative dwell time', display_value: displayValue, ...scoreBand(56) }
+      return { factor: 'Cumulative dwell time', display_value: displayValue, ...scoreBand(32) }
+    }
+    case 'cumulative_leg_time': {
+      const leg = Number(inputValue || 0)
+      const displayValue = `${leg.toFixed(1)} min`
+      if (leg <= 2) return { factor: 'Cumulative leg time', display_value: displayValue, ...scoreBand(78) }
+      if (leg <= 5) return { factor: 'Cumulative leg time', display_value: displayValue, ...scoreBand(55) }
+      return { factor: 'Cumulative leg time', display_value: displayValue, ...scoreBand(36) }
+    }
+    case 'cumulative_stops': {
+      const stops = Number(inputValue || 0)
+      const displayValue = `${Math.round(stops)} stops`
+      if (stops <= 5) return { factor: 'Stops traversed', display_value: displayValue, ...scoreBand(80) }
+      if (stops <= 12) return { factor: 'Stops traversed', display_value: displayValue, ...scoreBand(56) }
+      return { factor: 'Stops traversed', display_value: displayValue, ...scoreBand(35) }
+    }
+    case 'hour_of_day': {
+      const hour = Number(inputValue || 0)
+      const isPeak = (hour >= 7 && hour <= 9) || (hour >= 16 && hour <= 18)
+      const displayValue = `${String(Math.round(hour)).padStart(2, '0')}:00`
+      return { factor: 'Hour of day', display_value: displayValue, ...scoreBand(isPeak ? 42 : 72) }
+    }
+    case 'day_of_week': {
+      const day = Number(inputValue || 0)
+      const displayValue = day === 0 ? 'Mon' : day === 6 ? 'Sun' : 'Weekday'
+      if (day === 0) return { factor: 'Day of week', display_value: displayValue, ...scoreBand(45) }
+      if (day === 6) return { factor: 'Day of week', display_value: displayValue, ...scoreBand(76) }
+      return { factor: 'Day of week', display_value: displayValue, ...scoreBand(62) }
+    }
+    case 'is_sunday': {
+      const sunday = Number(inputValue || 0) === 1
+      return { factor: 'Sunday service pattern', display_value: sunday ? 'Sun' : 'No', ...scoreBand(sunday ? 78 : 58) }
+    }
+    case 'mode': {
+      const mode = String(inputValue || 'bus')
+      return { factor: 'Transit mode', display_value: mode, ...scoreBand(64) }
+    }
+    case 'section_id': {
+      return { factor: 'Route section signature', display_value: `#${inputValue}`, ...scoreBand(60) }
+    }
+    default:
+      return { factor: inputKey, display_value: String(inputValue), ...scoreBand(58) }
+  }
+}
+
+function buildModelDrivenFactors(forecastData) {
+  const modelUsed = forecastData?.magi?.model_used
+  const modelInputs = forecastData?.magi?.all_models?.[modelUsed]?.inputs
+  if (!modelUsed || !modelInputs || typeof modelInputs !== 'object') {
+    return []
+  }
+
+  return Object.entries(modelInputs)
+    .filter(([, value]) => value !== null && value !== undefined)
+    .map(([key, value]) => buildModelConsideration(key, value))
+    .slice(0, 3)
+}
+
 function normalizeScoreFromForecast(data) {
   const winnerScore = data?.magi?.selection_context?.winner_score_100
   if (typeof winnerScore === 'number' && Number.isFinite(winnerScore)) {
@@ -157,12 +308,26 @@ function stationIcon(stop, isActive, opacity, outlineColor, isScoreLoading) {
       ? stop.is_parent_station === true
         ? 'is-parent'
         : 'is-child'
-      : 'is-bus'
+      : modeClass === 'light-rail'
+        ? 'is-light-rail'
+        : modeClass === 'bike'
+          ? 'is-bike'
+          : 'is-bus'
   const scoreClass = isScoreLoading ? 'is-score-loading' : ''
+
+  if (modeClass === 'bike') {
+    return divIcon({
+      className: 'station-marker station-marker--bike',
+      html: `<div class="station-shape station-shape--bike ${fillClass} ${scoreClass} ${isActive ? 'is-active' : ''}" style="opacity:${opacity.toFixed(3)}"><svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true"><path d="M13 4.25 L22.25 21.25 L3.75 21.25 Z" fill="#ffffff" stroke="${outlineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg></div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      popupAnchor: [0, -11],
+    })
+  }
 
   return divIcon({
     className: 'station-marker',
-    html: `<div class="station-shape station-shape--${modeClass} ${fillClass} ${scoreClass} ${isActive ? 'is-active' : ''}" style="opacity:${opacity.toFixed(3)};border-color:${outlineColor}"></div>`,
+    html: `<div class="station-shape station-shape--${modeClass} ${fillClass} ${scoreClass} ${isActive ? 'is-active' : ''}" style="opacity:${opacity.toFixed(3)};--marker-outline:${outlineColor};border-color:${outlineColor}"></div>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
     popupAnchor: [0, -10],
@@ -204,13 +369,33 @@ function MapViewTracker({ onViewChange }) {
 function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
   const [query, setQuery] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
+  const [selectedModes, setSelectedModes] = useState(['railway', 'bus'])
   const [stops, setStops] = useState({ loading: true, error: '', items: [] })
   const [results, setResults] = useState({ loading: false, error: '', items: [] })
+  const [bikeCatalog, setBikeCatalog] = useState({ loading: true, error: '', items: [] })
   const [mapView, setMapView] = useState({ zoom: 11, center: null, bounds: null })
   const [scoreByStopId, setScoreByStopId] = useState({})
   const searchRef = useRef(null)
+  const modeFilterRef = useRef(null)
   const pendingScoreRequestsRef = useRef(new Set())
   const scoreRetryAfterRef = useRef(new Map())
+  const scoreByStopIdRef = useRef({})
+
+  useEffect(() => {
+    scoreByStopIdRef.current = scoreByStopId
+  }, [scoreByStopId])
+
+  const selectedModeSet = useMemo(() => new Set(selectedModes), [selectedModes])
+
+  function toggleMode(nextMode) {
+    setSelectedModes((prev) => {
+      if (prev.includes(nextMode)) {
+        return prev.filter((mode) => mode !== nextMode)
+      }
+      return [...prev, nextMode]
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -218,7 +403,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     async function loadStops() {
       setStops((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const data = await fetchJson('/stops?limit=2500')
+        const data = await fetchJson('/stops?limit=5000')
         if (!cancelled) {
           setStops({ loading: false, error: '', items: Array.isArray(data?.stops) ? data.stops : [] })
         }
@@ -253,6 +438,21 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [dropdownOpen])
+
+  useEffect(() => {
+    if (!modeMenuOpen) {
+      return undefined
+    }
+
+    function handleClickOutside(event) {
+      if (modeFilterRef.current && !modeFilterRef.current.contains(event.target)) {
+        setModeMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [modeMenuOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -292,45 +492,66 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     }
   }, [query])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadBikeCatalog() {
+      setBikeCatalog((prev) => ({ ...prev, loading: true, error: '' }))
+      try {
+        const data = await fetchJson('/bikeshare/stations?limit=5000')
+        if (cancelled) {
+          return
+        }
+
+        const bikes = Array.isArray(data?.stations)
+          ? data.stations.filter(
+              (bike) => typeof bike?.lat === 'number' && Number.isFinite(bike.lat) && typeof bike?.lon === 'number' && Number.isFinite(bike.lon),
+            )
+          : []
+
+        setBikeCatalog({ loading: false, error: '', items: bikes })
+      } catch (error) {
+        if (!cancelled) {
+          setBikeCatalog({ loading: false, error: describeFetchError(error, '/bikeshare/stations'), items: [] })
+        }
+      }
+    }
+
+    loadBikeCatalog()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const visibleStops = useMemo(() => {
     if (mapView.zoom < MAP_RENDER_FADE_START_ZOOM || !mapView.bounds) {
       return []
     }
 
-    const byBounds = stops.items.filter((stop) => mapView.bounds.contains([stop.lat, stop.lon]))
+    const modeFiltered = stops.items.filter((stop) => selectedModeSet.has(normalizeTransitFilterMode(stop.mode)))
 
-    // Keep higher-intent rail parent stations; platform children add visual noise.
-    const likelyStops = byBounds.filter((stop) => {
-      if (stop.mode === 'railway') {
-        return stop.is_parent_station === true
-      }
-      return true
-    })
+    return modeFiltered.filter((stop) => mapView.bounds.contains([stop.lat, stop.lon]))
+  }, [mapView.bounds, mapView.zoom, selectedModeSet, stops.items])
 
-    // For non-rail modes, de-duplicate by name to reduce directional stop clutter.
-    const seenNames = new Set()
-    const deduped = []
-    for (const stop of likelyStops) {
-      if (stop.mode === 'railway') {
-        deduped.push(stop)
-        continue
-      }
-      const key = String(stop.stop_name || '').toLowerCase().trim()
-      if (!key || seenNames.has(key)) {
-        continue
-      }
-      seenNames.add(key)
-      deduped.push(stop)
+  const visibleBikeStations = useMemo(() => {
+    if (!mapView.bounds) {
+      return []
+    }
+    if (!selectedModeSet.has('bike')) {
+      return []
     }
 
-    return deduped
-  }, [mapView.bounds, mapView.zoom, stops.items])
+    return bikeCatalog.items.filter((bike) => mapView.bounds.contains([bike.lat, bike.lon]))
+  }, [bikeCatalog.items, mapView.bounds, selectedModeSet])
 
   useEffect(() => {
-    const batchSize = 60
+    const batchSize = 80
+    const maxConcurrent = 8
     const nowMs = Date.now()
+    const viewCenter = mapView.center
+
     const missingStops = visibleStops
-      .filter((stop) => !Object.prototype.hasOwnProperty.call(scoreByStopId, stop.stop_id))
+      .filter((stop) => !Object.prototype.hasOwnProperty.call(scoreByStopIdRef.current, stop.stop_id))
       .filter((stop) => !pendingScoreRequestsRef.current.has(stop.stop_id))
       .filter((stop) => {
         const retryAfter = scoreRetryAfterRef.current.get(stop.stop_id) || 0
@@ -342,36 +563,61 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
       return undefined
     }
 
+    const prioritizedStops = [...missingStops].sort((a, b) => {
+      if (!viewCenter) {
+        return 0
+      }
+      const aDist = (a.lat - viewCenter.lat) ** 2 + (a.lon - viewCenter.lng) ** 2
+      const bDist = (b.lat - viewCenter.lat) ** 2 + (b.lon - viewCenter.lng) ** 2
+      return aDist - bDist
+    })
+
     let cancelled = false
+    let nextIndex = 0
+    let activeCount = 0
 
-    async function loadScores() {
-      const updates = {}
+    function launchNext() {
+      if (cancelled) {
+        return
+      }
 
-      await Promise.all(
-        missingStops.map(async (stop) => {
-          pendingScoreRequestsRef.current.add(stop.stop_id)
-          try {
-            const data = await fetchJson(`/station/${encodeURIComponent(stop.stop_id)}`)
-            updates[stop.stop_id] = normalizeScoreFromForecast(data)
+      while (activeCount < maxConcurrent && nextIndex < prioritizedStops.length) {
+        const stop = prioritizedStops[nextIndex]
+        nextIndex += 1
+        activeCount += 1
+        pendingScoreRequestsRef.current.add(stop.stop_id)
+
+        fetchJson(`/station/${encodeURIComponent(stop.stop_id)}`)
+          .then((data) => {
+            if (cancelled) {
+              return
+            }
+
+            const nextScore = normalizeScoreFromForecast(data)
             scoreRetryAfterRef.current.delete(stop.stop_id)
-          } catch {
+            setScoreByStopId((prev) => {
+              if (Object.prototype.hasOwnProperty.call(prev, stop.stop_id)) {
+                return prev
+              }
+              return { ...prev, [stop.stop_id]: nextScore }
+            })
+          })
+          .catch(() => {
             scoreRetryAfterRef.current.set(stop.stop_id, Date.now() + 30000)
-          } finally {
+          })
+          .finally(() => {
             pendingScoreRequestsRef.current.delete(stop.stop_id)
-          }
-        }),
-      )
-
-      if (!cancelled) {
-        setScoreByStopId((prev) => ({ ...prev, ...updates }))
+            activeCount -= 1
+            launchNext()
+          })
       }
     }
 
-    loadScores()
+    launchNext()
     return () => {
       cancelled = true
     }
-  }, [visibleStops, scoreByStopId])
+  }, [mapView.center, visibleStops])
 
   return (
     <main className="landing-shell">
@@ -412,7 +658,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
                   }}
                 >
                   <strong>{stop.stop_name}</strong>
-                  <span>{stop.mode}</span>
+                  <span className={`station-tag station-tag--${modeStyle(stop.mode)}`}>{transitTagLabel(stop.mode)}</span>
                 </button>
               ))}
             </div>
@@ -423,8 +669,34 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
           <button type="button" className="open-forecast-btn" onClick={onEnterForecast} disabled={!selectedStop}>
             {selectedStop ? `Open forecast for ${selectedStop.stop_name}` : 'Select a station'}
           </button>
+          <div className="mode-filter-dropdown" ref={modeFilterRef}>
+            <button
+              type="button"
+              className={`mode-filter-trigger ${modeMenuOpen ? 'is-open' : ''}`}
+              onClick={() => setModeMenuOpen((open) => !open)}
+              aria-expanded={modeMenuOpen}
+              aria-haspopup="menu"
+            >
+              Transit types ({selectedModes.length})
+            </button>
+            {modeMenuOpen ? (
+              <div className="mode-filter-menu" role="group" aria-label="Filter map station types">
+              {TRANSIT_MODE_OPTIONS.map((option) => (
+                <label key={option.value} className="mode-filter-option">
+                  <input
+                    type="checkbox"
+                    checked={selectedModes.includes(option.value)}
+                    onChange={() => toggleMode(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+              </div>
+            ) : null}
+          </div>
         </div>
         {stops.error ? <p className="search-error">{stops.error}</p> : null}
+        {bikeCatalog.error ? <p className="search-error">{bikeCatalog.error}</p> : null}
       </section>
 
       <section className="map-box">
@@ -455,7 +727,9 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
                 <Popup>
                   <div className="popup-card">
                     <strong>{stop.stop_name}</strong>
-                    <p>{stop.mode}</p>
+                    <p>
+                      <span className={`station-tag station-tag--${modeStyle(stop.mode)}`}>{transitTagLabel(stop.mode)}</span>
+                    </p>
                     <button type="button" onClick={onEnterForecast}>
                       Open forecast
                     </button>
@@ -464,13 +738,73 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
               </Marker>
             )
           })}
+
+          {visibleBikeStations.map((bike) => (
+            <Marker
+              key={`bike-${bike.station_id}`}
+              position={[bike.lat, bike.lon]}
+              icon={stationIcon(
+                { mode: 'bike', is_parent_station: false },
+                false,
+                0.95,
+                colorByBikeAvailability(bike.bikes_available),
+                bikeCatalog.loading,
+              )}
+            >
+              <Popup>
+                <div className="popup-card">
+                  <strong>{bike.name}</strong>
+                  <p>Bike share</p>
+                  <p>Bikes: {bike.bikes_available} · Docks: {bike.docks_available}</p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
         </MapContainer>
+
+        <aside className="map-legend" aria-label="Map legend">
+          <p className="map-legend-title">Legend</p>
+          <div className="map-legend-grid">
+            <div className="legend-item">
+              <span className="legend-shape legend-shape--railway" />
+              <span>Train</span>
+            </div>
+            <div className="legend-item">
+              <span className="legend-shape legend-shape--bus" />
+              <span>Bus</span>
+            </div>
+            <div className="legend-item">
+              <span className="legend-shape legend-shape--bike" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14">
+                  <path d="M8 2 L14 13 L2 13 Z" fill="#ffffff" stroke="#0f172a" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                </svg>
+              </span>
+              <span>Bikeshare</span>
+            </div>
+          </div>
+
+          <p className="map-legend-subtitle">Outline score</p>
+          <div className="map-legend-grid">
+            <div className="legend-item">
+              <span className="legend-dot legend-dot--good" />
+              <span>Good</span>
+            </div>
+            <div className="legend-item">
+              <span className="legend-dot legend-dot--fair" />
+              <span>Moderate</span>
+            </div>
+            <div className="legend-item">
+              <span className="legend-dot legend-dot--poor" />
+              <span>Poor</span>
+            </div>
+          </div>
+        </aside>
       </section>
 
       <p className="map-render-hint">
         {mapView.zoom < MAP_RENDER_FADE_START_ZOOM
           ? 'Zoom in to start revealing likely-use stops.'
-          : `Rendering ${visibleStops.length} likely-use stops in the current view.`}
+          : `Rendering ${visibleStops.length} transit stops and ${visibleBikeStations.length} bikeshare stations in the current view.`}
       </p>
     </main>
   )
@@ -614,7 +948,10 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
 
   const magi = forecast.data?.magi
   const winnerScore = magi?.selection_context?.winner_score_100
-  const factors = Array.isArray(forecast.data?.top_factors) ? forecast.data.top_factors : []
+  const modelDrivenFactors = buildModelDrivenFactors(forecast.data)
+  const fallbackFactors = Array.isArray(forecast.data?.top_factors) ? forecast.data.top_factors : []
+  const factors = modelDrivenFactors.length > 0 ? modelDrivenFactors : fallbackFactors
+  const usingModelFactors = modelDrivenFactors.length > 0
   const scoreHeading = 'Predicted standardized score'
   const displayScore = typeof winnerScore === 'number' ? Math.round(winnerScore) : '--'
   const displayTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -706,16 +1043,26 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
 
           <div className="widget-right">
             <p className="widget-title">Confounding Factors</p>
+            <p className="widget-subtitle">
+              {usingModelFactors
+                ? `Rated from ${formatModelName(magi?.model_used)} model inputs`
+                : 'Rated from system-level confounding factors'}
+            </p>
             {factors.length > 0 ? (
               <ul className="factor-list">
                 {factors.slice(0, 3).map((factor, idx) => (
-                  <li key={`${factor.factor}-${idx}`}>
-                    <span>{factor.factor}</span>
+                  <li key={`${factor.factor}-${idx}`} className={`factor-item ${factorToneClass(factor)}`}>
+                    <span className="factor-text">{factor.factor}</span>
+                    <span className="factor-score">{factorValueLabel(factor)}</span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="widget-empty">Confounding factors will appear after forecast data loads.</p>
+              <p className="widget-empty">
+                {forecast.loading
+                  ? 'Loading confounding factors...'
+                  : 'No significant confounding factors detected right now.'}
+              </p>
             )}
           </div>
         </div>
