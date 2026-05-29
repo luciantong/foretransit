@@ -3,9 +3,9 @@
 :root {
   --ink-strong: #0f172a;
   --ink-muted: #475569;
-  --bg-main: #eaf3ff;
-  --bg-accent: #dff7ec;
-  --font-body: 'Helvetica', 'Trebuchet MS', sans-serif, font-weight: bold;
+  --bg-main: #fdfbd4;
+  --bg-accent: #fdfbd4;
+  --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-mono: 'IBM Plex Mono', Consolas, monospace;
 }
 
@@ -17,15 +17,17 @@ body {
   margin: 0;
   min-height: 100vh;
   font-family: var(--font-body);
+  font-weight: 700;
   color: var(--ink-strong);
-  background:
-    radial-gradient(circle at 10% 10%, rgba(14, 165, 233, 0.18), transparent 35%),
-    radial-gradient(circle at 80% 15%, rgba(22, 163, 74, 0.15), transparent 32%),
-    linear-gradient(160deg, var(--bg-main), var(--bg-accent));
+  background: #fdfbd4;
+}
+
+body.theme-dark {
+  color: #f3ecd3;
+  background: #1d2124;
 }
 
 code,
-pre,
-input {
+pre {
   font-family: var(--font-mono);
 }

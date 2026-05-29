@@ -173,6 +173,19 @@ function factorValueLabel(factor) {
   return 'n/a'
 }
 
+function confidenceLabel(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) {
+    return 'Confidence: n/a'
+  }
+  if (score >= 70) {
+    return 'Confidence: High'
+  }
+  if (score >= 45) {
+    return 'Confidence: Medium'
+  }
+  return 'Confidence: Low'
+}
+
 function transitTagLabel(mode) {
   if (modeStyle(mode) === 'railway') {
     return 'Train'
@@ -366,7 +379,7 @@ function MapViewTracker({ onViewChange }) {
   return null
 }
 
-function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
+function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onToggleDarkMode }) {
   const [query, setQuery] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
@@ -622,8 +635,15 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
   return (
     <main className="landing-shell">
       <section className="landing-top">
-        <p className="landing-eyebrow">ForeTransit</p>
-        <h1 className="landing-title">TTC Station Map</h1>
+        <div className="landing-top-head">
+          <div>
+            <p className="landing-eyebrow">ForeTransit</p>
+            <h1 className="landing-title">TTC Station Map</h1>
+          </div>
+          <button type="button" className="theme-toggle-btn" onClick={onToggleDarkMode}>
+            {darkMode ? 'Light mode' : 'Dark mode'}
+          </button>
+        </div>
 
         <div className="map-search-panel" ref={searchRef}>
           <input
@@ -776,7 +796,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
             <div className="legend-item">
               <span className="legend-shape legend-shape--bike" aria-hidden="true">
                 <svg viewBox="0 0 16 16" width="14" height="14">
-                  <path d="M8 2 L14 13 L2 13 Z" fill="#ffffff" stroke="#0f172a" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                  <path d="M8 2 L14 13 L2 13 Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
                 </svg>
               </span>
               <span>Bikeshare</span>
@@ -1039,6 +1059,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
             <p className="widget-model-line">
               Model selected: {formatModelName(magi?.model_used)}
             </p>
+            <p className="widget-confidence-line">{confidenceLabel(winnerScore)}</p>
           </div>
 
           <div className="widget-right">
@@ -1074,10 +1095,26 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
 function App() {
   const [view, setView] = useState('map')
   const [selectedStop, setSelectedStop] = useState(null)
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return window.localStorage.getItem('foretransit-theme') === 'dark'
+    } catch {
+      return false
+    }
+  })
 
   useEffect(() => {
     document.title = view === 'forecast' ? 'ForeTransit | Forecast Interface' : 'ForeTransit | Map Interface'
   }, [view])
+
+  useEffect(() => {
+    document.body.classList.toggle('theme-dark', darkMode)
+    try {
+      window.localStorage.setItem('foretransit-theme', darkMode ? 'dark' : 'light')
+    } catch {
+      // Ignore storage write issues and keep in-memory theme state.
+    }
+  }, [darkMode])
 
   if (view === 'forecast') {
     return <ForecastDashboard selectedStop={selectedStop} onBackToMap={() => setView('map')} />
@@ -1088,6 +1125,8 @@ function App() {
       selectedStop={selectedStop}
       onSelectStop={setSelectedStop}
       onEnterForecast={() => setView('forecast')}
+      darkMode={darkMode}
+      onToggleDarkMode={() => setDarkMode((prev) => !prev)}
     />
   )
 }
