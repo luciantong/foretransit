@@ -43,14 +43,7 @@ def safe_read_csv(path):
 stops_df      = safe_read_csv(f"{GTFS_PATH}/stops.txt")
 trips_df      = safe_read_csv(f"{GTFS_PATH}/trips.txt")
 routes_df     = safe_read_csv(f"{GTFS_PATH}/routes.txt")
-# Use filtered version on Railway to save memory
-_st_path = f"{GTFS_PATH}/stop_times_filtered.txt"
-if not os.path.exists(_st_path):
-    _st_path = f"{GTFS_PATH}/stop_times.txt"
-stop_times_df = pd.read_csv(
-    _st_path,
-    usecols=["trip_id", "stop_id", "arrival_time", "stop_sequence"]
-)
+stop_times_df = safe_read_csv(f"{GTFS_PATH}/stop_times.txt", usecols=["trip_id", "stop_id", "arrival_time", "stop_sequence"])
 
 # Only load columns we actually use — saves ~80% memory
 stop_times_df = pd.read_csv(
