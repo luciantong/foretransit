@@ -1,2 +1,10 @@
-uvicorn
 fastapi
+uvicorn
+pandas
+numpy
+scipy
+scikit-learn
+xgboost
+statsmodels
+requests
+joblib
