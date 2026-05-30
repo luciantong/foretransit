@@ -314,6 +314,20 @@ function normalizeScoreFromForecast(data) {
   return null
 }
 
+function normalizeStopsPayload(data) {
+  return Array.isArray(data?.stops) ? data.stops : []
+}
+
+function normalizeBikeStationsPayload(data) {
+  if (!Array.isArray(data?.stations)) {
+    return []
+  }
+
+  return data.stations.filter(
+    (bike) => typeof bike?.lat === 'number' && Number.isFinite(bike.lat) && typeof bike?.lon === 'number' && Number.isFinite(bike.lon),
+  )
+}
+
 function stationIcon(stop, isActive, opacity, outlineColor, isScoreLoading) {
   const modeClass = modeStyle(stop.mode)
   const fillClass =
@@ -420,7 +434,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
       try {
         const data = await fetchJson('/stops?limit=5000')
         if (!cancelled) {
-          setStops({ loading: false, error: '', items: Array.isArray(data?.stops) ? data.stops : [] })
+          setStops({ loading: false, error: '', items: normalizeStopsPayload(data) })
         }
       } catch (error) {
         if (!cancelled) {
@@ -518,13 +532,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
           return
         }
 
-        const bikes = Array.isArray(data?.stations)
-          ? data.stations.filter(
-              (bike) => typeof bike?.lat === 'number' && Number.isFinite(bike.lat) && typeof bike?.lon === 'number' && Number.isFinite(bike.lon),
-            )
-          : []
-
-        setBikeCatalog({ loading: false, error: '', items: bikes })
+        setBikeCatalog({ loading: false, error: '', items: normalizeBikeStationsPayload(data) })
       } catch (error) {
         if (!cancelled) {
           setBikeCatalog({ loading: false, error: describeFetchError(error, '/bikeshare/stations'), items: [] })
@@ -653,7 +661,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
         setStops({
           loading: false,
           error: '',
-          items: Array.isArray(stopsResult.value?.stops) ? stopsResult.value.stops : [],
+          items: normalizeStopsPayload(stopsResult.value),
         })
       } else {
         setStops((prev) => ({
@@ -664,13 +672,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
       }
 
       if (bikesResult.status === 'fulfilled') {
-        const bikes = Array.isArray(bikesResult.value?.stations)
-          ? bikesResult.value.stations.filter(
-              (bike) => typeof bike?.lat === 'number' && Number.isFinite(bike.lat) && typeof bike?.lon === 'number' && Number.isFinite(bike.lon),
-            )
-          : []
-
-        setBikeCatalog({ loading: false, error: '', items: bikes })
+        setBikeCatalog({ loading: false, error: '', items: normalizeBikeStationsPayload(bikesResult.value) })
       } else {
         setBikeCatalog((prev) => ({
           loading: false,
@@ -739,10 +741,10 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
         </div>
 
         <div className="map-actions">
-          <button type="button" className="open-forecast-btn" onClick={onEnterForecast} disabled={!selectedStop}>
+          <button type="button" className="map-action-btn open-forecast-btn" onClick={onEnterForecast} disabled={!selectedStop}>
             {selectedStop ? `Open forecast for ${selectedStop.stop_name}` : 'Select a station'}
           </button>
-          <button type="button" className="refresh-data-btn" onClick={refreshMapData} disabled={isRefreshing}>
+          <button type="button" className="map-action-btn refresh-data-btn" onClick={refreshMapData} disabled={isRefreshing}>
             {isRefreshing ? 'Refreshing...' : 'Refresh data'}
           </button>
           <div className="mode-filter-dropdown" ref={modeFilterRef}>
@@ -757,16 +759,16 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
             </button>
             {modeMenuOpen ? (
               <div className="mode-filter-menu" role="group" aria-label="Filter map station types">
-              {TRANSIT_MODE_OPTIONS.map((option) => (
-                <label key={option.value} className="mode-filter-option">
-                  <input
-                    type="checkbox"
-                    checked={selectedModes.includes(option.value)}
-                    onChange={() => toggleMode(option.value)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
+                {TRANSIT_MODE_OPTIONS.map((option) => (
+                  <label key={option.value} className="mode-filter-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedModes.includes(option.value)}
+                      onChange={() => toggleMode(option.value)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
               </div>
             ) : null}
           </div>
