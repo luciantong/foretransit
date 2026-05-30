@@ -607,6 +607,213 @@ plt.show()
 ```
 ---
 
+## Top 10 TTC Streetcar Delay Routes since 2025
+
+```
+
+# =============================================================================
+# TTC Streetcar Delay Data — Top 10 Delay Categories Since 2025 (No 'Incident' column)
+# Uses pandas and matplotlib only
+# - Reads local CSV: "TTC Streetcar Delay Data since 2025.csv"
+# - Cleans columns; handles missing Date, Time, Min Delay, Min Gap
+# - Filters to 2025 onward
+# - Aggregates by a chosen key (default: route) to show Top 10 categories
+# - Saves 300 dpi PNG suitable for academic reports
+# =============================================================================
+
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+csv_path = "TTC Streetcar Delay Data since 2025.csv"
+
+if not os.path.exists(csv_path):
+    print("ERROR: Could not find 'TTC Streetcar Delay Data since 2025.csv'.")
+    print("Please place the CSV file in the same folder as this notebook and rerun the cell.")
+else:
+    # ----------------------------
+    # 1) Load and normalize column names
+    # ----------------------------
+    df = pd.read_csv(csv_path)
+
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.replace(r"\s+", "_", regex=True)
+        .str.replace(r"[^\w_]", "", regex=True)
+        .str.lower()
+    )
+
+    # Candidate lists for key fields (no 'incident' required)
+    date_candidates = ["date", "report_date", "reportdate", "occurrence_date", "start_date"]
+    time_candidates = ["time", "report_time", "occurrence_time", "start_time"]
+    route_candidates = ["route", "route_id", "route_name", "line"]
+    location_candidates = ["location", "stop", "intersection", "area"]
+    mindelay_candidates = ["min_delay", "mindelay", "delay_minutes", "minutes_delayed", "delay_min"]
+    mingap_candidates = ["min_gap", "mingap", "gap_minutes", "minutes_gap", "headway_gap"]
+
+    def pick(colnames, candidates):
+        for c in candidates:
+            if c in colnames:
+                return c
+        return None
+
+    date_col = pick(df.columns, date_candidates)
+    time_col = pick(df.columns, time_candidates)
+    route_col = pick(df.columns, route_candidates)
+    location_col = pick(df.columns, location_candidates)
+    mindelay_col = pick(df.columns, mindelay_candidates)
+    mingap_col = pick(df.columns, mingap_candidates)
+
+    print("Detected columns (after cleaning):")
+    print(f"  Date -> {date_col}")
+    print(f"  Time -> {time_col}")
+    print(f"  Route -> {route_col}")
+    print(f"  Location -> {location_col}")
+    print(f"  Min Delay -> {mindelay_col}")
+    print(f"  Min Gap -> {mingap_col}\n")
+
+    if date_col is None:
+        raise ValueError("No date-like column found. Look for 'Date' or 'Report Date' in your CSV headers.")
+
+    # ----------------------------
+    # 2) Parse and clean
+    # ----------------------------
+    # Parse dates (try both orders if necessary)
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce", dayfirst=False)
+    if df[date_col].isna().mean() > 0.5:
+        mask = df[date_col].isna()
+        df.loc[mask, date_col] = pd.to_datetime(df.loc[mask, date_col], errors="coerce", dayfirst=True)
+
+    # Optional time parsing
+    if time_col is not None:
+        try:
+            parsed = pd.to_datetime(df[time_col], errors="coerce", format="%H:%M")
+        except Exception:
+            parsed = pd.to_datetime(df[time_col], errors="coerce")
+        df[time_col] = parsed.dt.time
+
+    # Numeric delay/gap
+    if mindelay_col is not None:
+        df[mindelay_col] = pd.to_numeric(df[mindelay_col], errors="coerce")
+    if mingap_col is not None:
+        df[mingap_col] = pd.to_numeric(df[mingap_col], errors="coerce")
+
+    # Drop rows missing the date
+    before_drop = len(df)
+    df = df.dropna(subset=[date_col])
+    after_drop = len(df)
+
+    # ----------------------------
+    # 3) Filter to 2025 onward
+    # ----------------------------
+    df_2025p = df[df[date_col].dt.year >= 2025].copy()
+    if df_2025p.empty:
+        print("No streetcar delay records found from 2025 onward after cleaning.")
+    else:
+        # ----------------------------
+        # 4) Choose grouping key (no Incident column)
+        #    Default to 'route'; fallback to 'location' if route is missing.
+        # ----------------------------
+        group_key = route_col if route_col is not None else location_col
+        if group_key is None:
+            # If neither route nor location exist, fall back to counting all records (single bar)
+            df_2025p["_group"] = "All Records"
+            group_key = "_group"
+
+        # Prepare a clean label series for the group key
+        df_2025p[group_key] = df_2025p[group_key].astype(str).str.strip().replace({"": pd.NA, "nan": pd.NA})
+        # For missing group labels, fill with 'Unknown'
+        df_2025p[group_key] = df_2025p[group_key].fillna("Unknown")
+
+        # ----------------------------
+        # 5) Aggregate: count of records + total delay minutes (if available)
+        # ----------------------------
+        agg_dict = {"count": ("__dummy__", "size")}
+        # Create a dummy column for counting via agg
+        df_2025p["__dummy__"] = 1
+
+        if mindelay_col is not None:
+            agg_dict["total_delay_min"] = (mindelay_col, "sum")
+
+        grouped = df_2025p.groupby(group_key).agg(**agg_dict).reset_index()
+
+        # Rank by count of delay records
+        grouped = grouped.sort_values("count", ascending=False)
+
+        # Select Top 10
+        top10 = grouped.head(10).sort_values("count", ascending=True)
+
+        # ----------------------------
+        # 6) Plot — Horizontal bar chart (Top 10 by count)
+        # ----------------------------
+        plt.rcParams.update({
+            "figure.figsize": (12, 7),
+            "axes.titlesize": 16,
+            "axes.titleweight": "bold",
+            "axes.labelsize": 12,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+        })
+
+        fig, ax = plt.subplots()
+
+        bars = ax.barh(
+            top10[group_key].astype(str),
+            top10["count"].astype(int),
+            color="#1f77b4",
+            edgecolor="black",
+            linewidth=0.7,
+            alpha=0.9
+        )
+
+        title_dim = "Route" if group_key == route_col else ("Location" if group_key == location_col else "Category")
+        ax.set_title(f"Top 10 TTC Streetcar Delay {title_dim}s Since 2025")
+        ax.set_xlabel("Number of delay incidents")
+        ax.set_ylabel(f"{title_dim}")
+
+        # Value labels at bar ends
+        for bar, val in zip(bars, top10["count"].astype(int).values):
+            ax.annotate(
+                f"{val:,}",
+                xy=(val, bar.get_y() + bar.get_height() / 2),
+                xytext=(6, 0),
+                textcoords="offset points",
+                va="center",
+                ha="left",
+                fontsize=10
+            )
+
+        # Grid and headroom
+        ax.xaxis.grid(True, linestyle="--", alpha=0.5)
+        ax.set_axisbelow(True)
+        xmax = top10["count"].max() if len(top10) else 0
+        ax.set_xlim(0, xmax * 1.12 if xmax > 0 else 1)
+
+        # Caption/source note
+        caption = (
+            "Note. Data from City of Toronto Open Data, TTC Streetcar Delay Data. "
+            "Frequent and uneven delay patterns support a forecast app tailored to Toronto operations."
+        )
+        fig.subplots_adjust(bottom=0.20)
+        fig.text(0.5, 0.05, caption, ha="center", va="center", fontsize=9, color="gray", style="italic")
+
+        plt.tight_layout(rect=[0, 0.08, 1, 1])
+
+        # Save at 300 dpi
+        out_file = "ttc_streetcar_top_10_delay_causes_since_2025.png"
+        plt.savefig(out_file, dpi=300, bbox_inches="tight")
+        plt.show()
+
+        # Confirmation
+        print("Chart saved as:", out_file)
+        print(f"Records in original file: {before_drop:,}")
+        print(f"Records after dropping missing dates: {after_drop:,}")
+        print(f"Records from 2025 onward used: {len(df_2025p):,}")
+```
+
+---
+
 ## Academic references
 
 - Chen, A. et al. (2007). *Ordered probit model for transit delay severity prediction.*
