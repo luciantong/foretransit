@@ -58,10 +58,14 @@ def get_station_forecast(stop_id):
 
 # ─── Get Vehicles Near A Stop ────────────────
 def get_vehicles_near_stop(stop_lat, stop_lon, radius_km=0.25):
-    with open("data/raw/gtfs_realtime/vehicles_latest.json") as f:
-        rt_data = json.load(f)
-
-    raw_vehicles = rt_data["data"]["vehicle"]
+    try:
+        resp = requests.get(
+            "https://retro.umoiq.com/service/publicJSONFeed?command=vehicleLocations&a=ttc",
+            timeout=10
+        )
+        raw_vehicles = resp.json()["vehicle"]
+    except Exception:
+        raw_vehicles = []
 
     # 1. Deduplicate by vehicle ID
     raw_vehicles = deduplicate_vehicles(raw_vehicles)
@@ -85,28 +89,25 @@ def get_vehicles_near_stop(stop_lat, stop_lon, radius_km=0.25):
 # ─── Get Current Weather ─────────────────────
 def get_current_weather():
     try:
-        with open("data/raw/weather/weather_latest.json") as f:
-            weather = json.load(f)
-        now          = datetime.now()
+        resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast?latitude=43.6532&longitude=-79.3832&hourly=rain,snowfall,windspeed_10m,visibility,temperature_2m&forecast_days=1",
+            timeout=5
+        ).json()
+        now = datetime.now()
         current_hour = now.strftime("%Y-%m-%dT%H:00")
-        times        = weather["hourly"]["time"]
+        times = resp["hourly"]["time"]
         if current_hour in times:
             idx = times.index(current_hour)
             return {
-                "rain":        weather["hourly"]["rain"][idx],
-                "snow":        weather["hourly"]["snowfall"][idx],
-                "wind":        weather["hourly"]["windspeed_10m"][idx],
-                "visibility":  weather["hourly"]["visibility"][idx],
-                "temperature": weather["hourly"]["temperature_2m"][idx]
+                "rain":        resp["hourly"]["rain"][idx],
+                "snow":        resp["hourly"]["snowfall"][idx],
+                "wind":        resp["hourly"]["windspeed_10m"][idx],
+                "visibility":  resp["hourly"]["visibility"][idx],
+                "temperature": resp["hourly"]["temperature_2m"][idx]
             }
     except Exception:
         pass
-    return {
-        "rain": 0, "snow": 0,
-        "wind": 0,
-        "visibility": 10000,
-        "temperature": 10
-    }
+    return {"rain": 0, "snow": 0, "wind": 0, "visibility": 10000, "temperature": 10}
 
 def _stable_section_id(route_id):
     text = str(route_id or "unknown")
