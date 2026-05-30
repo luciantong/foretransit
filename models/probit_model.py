@@ -1,76 +1,72 @@
-import pandas as pd
 import numpy as np
-from datetime import datetime
+import statsmodels.api as sm
+from scipy.stats import norm
 
-# ─── Probit Model (Chen et al. 2007) ─────────
-# Uses Chen et al. beta coefficients directly
-# as a baseline before retraining on Toronto data
-# β values from Table 4 of Chen et al. paper
+class ProbitModel:
+    def __init__(self):
+        self.model = None
+        self.params = None
+        # Chen et al. 2007 Baseline Coefficients
+        self.chen_betas = {
+            "cumulative_dwell_time": 0.2367,
+            "cumulative_leg_time": 0.1862,
+            "cumulative_stops": 0.0989,
+            "is_sunday": -0.7685,
+            "intercept": -0.2732
+        }
+        self.thresholds = {"mu1": 0.5, "mu2": 1.2, "mu3": 2.1}
 
-CHEN_BETAS = {
-    "cumulative_dwell_time": 0.2367,   # highest impact
-    "cumulative_leg_time":   0.1862,
-    "cumulative_stops":      0.0989,
-    "is_sunday":            -0.7685,   # Sunday least delayed
-    "intercept":            -0.2732
-}
+    def fit(self, X, y):
+        """Fits a Probit model using statsmodels."""
+        X_with_const = sm.add_constant(X)
+        self.model = sm.Probit(y, X_with_const)
+        self.params = self.model.fit(disp=0)
+        return self
 
-THRESHOLDS = {
-    "mu1": 0.5,
-    "mu2": 1.2,
-    "mu3": 2.1
-}
+    def predict_prob(self, X):
+        """Returns predicted probability of delay classes with input validation."""
+        # Ensure input is a dictionary-like object if baseline is needed
+        if self.params is None:
+            return self._predict_chen_baseline(X)
+        
+        # If input is a DataFrame/Array, convert to constant-ready format
+        try:
+            X_with_const = sm.add_constant(X, has_constant='add')
+            return self.params.predict(X_with_const)
+        except Exception:
+            # Fallback if prediction fails due to malformed features
+            return self._predict_chen_baseline(X)
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
+    def _predict_chen_baseline(self, features):
+        if hasattr(features, 'to_dict'):
+            features = features.to_dict('records')[0]
+        elif not isinstance(features, dict):
+            features = {}
 
-def probit_predict(features):
-    """
-    Predicts delay severity using Chen et al. coefficients
-    Returns probabilities for each severity level
-    P(Y=0), P(Y=1), P(Y=2), P(Y=3)
-    """
-    # Calculate latent variable y*
-    y_star = (
-        CHEN_BETAS["intercept"] +
-        CHEN_BETAS["cumulative_dwell_time"] * 
-            features.get("cumulative_dwell_time", 0) +
-        CHEN_BETAS["cumulative_leg_time"] * 
-            features.get("cumulative_leg_time", 0) +
-        CHEN_BETAS["cumulative_stops"] * 
-            features.get("cumulative_stops", 0) +
-        CHEN_BETAS["is_sunday"] * 
-            features.get("is_sunday", 0)
-    )
+        # Normalize to Chen et al. scale
+        dwell = features.get("cumulative_dwell_time", 0) / 10.0
+        leg   = features.get("cumulative_leg_time", 0)   / 60.0
+        stops = features.get("cumulative_stops", 0)      / 20.0
 
-    # Calculate probabilities using normal CDF
-    from scipy.stats import norm
-    p0 = norm.cdf(THRESHOLDS["mu1"] - y_star)
-    p1 = norm.cdf(THRESHOLDS["mu2"] - y_star) - p0
-    p2 = norm.cdf(THRESHOLDS["mu3"] - y_star) - p0 - p1
-    p3 = 1 - p0 - p1 - p2
+        y_star = (
+            self.chen_betas["intercept"] +
+            self.chen_betas["cumulative_dwell_time"] * dwell +
+            self.chen_betas["cumulative_leg_time"]   * leg +
+            self.chen_betas["cumulative_stops"]      * stops +
+            self.chen_betas["is_sunday"] * features.get("is_sunday", 0)
+        )
 
-    # Predicted class = highest probability
-    probs     = [p0, p1, p2, p3]
-    predicted = int(np.argmax(probs))
+        p0 = norm.cdf(self.thresholds["mu1"] - y_star)
+        p1 = norm.cdf(self.thresholds["mu2"] - y_star) - p0
+        p2 = norm.cdf(self.thresholds["mu3"] - y_star) - p0 - p1
+        p3 = 1 - p0 - p1 - p2
 
-    return {
-        "model":        "probit",
-        "predicted":    predicted,
-        "probabilities": {
-            "on_time":   round(p0, 4),
-            "minor":     round(p1, 4),
-            "moderate":  round(p2, 4),
-            "severe":    round(p3, 4)
-        },
-        "y_star":       round(y_star, 4)
-    }
+        return np.array([p0, p1, p2, p3])
 
-def calc_log_loss(predicted_probs, actual):
-    """
-    Log loss for model comparison in MAGI
-    Lower = better
-    """
-    import math
-    prob = predicted_probs[actual]
-    return round(-math.log(prob + 1e-10), 4)
+    def predict(self, X):
+        """Returns the highest probability class."""
+        probs = self.predict_prob(X)
+        # Handle cases where predict returns a Series or Array
+        if hasattr(probs, 'values'):
+            probs = probs.values
+        return int(np.argmax(probs))
