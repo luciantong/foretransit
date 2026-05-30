@@ -43,13 +43,18 @@ def safe_read_csv(path):
 stops_df      = safe_read_csv(f"{GTFS_PATH}/stops.txt")
 trips_df      = safe_read_csv(f"{GTFS_PATH}/trips.txt")
 routes_df     = safe_read_csv(f"{GTFS_PATH}/routes.txt")
-stop_times_df = safe_read_csv(f"{GTFS_PATH}/stop_times.txt", usecols=["trip_id", "stop_id", "arrival_time", "stop_sequence"])
 
-# Only load columns we actually use — saves ~80% memory
-stop_times_df = pd.read_csv(
-    f"{GTFS_PATH}/stop_times.txt",
-    usecols=["trip_id", "stop_id", "arrival_time", "stop_sequence"]
-)
+def get_stop_times_df():
+    # Load only when requested
+    return pd.read_csv(
+        f"{GTFS_PATH}/stop_times.txt",
+        usecols=["trip_id", "stop_id", "arrival_time", "stop_sequence"]
+    )
+
+def get_station_forecast(stop_id):
+    # ... inside your function logic ...
+    stop_times_df = get_stop_times_df()
+    scheduled = stop_times_df[stop_times_df["stop_id"] == int(stop_id)]
 
 # ─── Get Vehicles Near A Stop ────────────────
 def get_vehicles_near_stop(stop_lat, stop_lon, radius_km=0.25):
