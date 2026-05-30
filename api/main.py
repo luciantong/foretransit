@@ -107,3 +107,40 @@ def bikeshare_stations(limit: int = 5000):
         return {"stations": stations}
     except Exception as e:
         return {"stations": [], "error": str(e)}
+    
+@app.get("/debug/station/{stop_id}")
+def debug_station(stop_id: str):
+    import requests, math
+    
+    def haversine(lat1,lon1,lat2,lon2):
+        R=6371; dl=math.radians(lat2-lat1); dlo=math.radians(lon2-lon1)
+        a=math.sin(dl/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlo/2)**2
+        return R*2*math.asin(math.sqrt(a))
+    
+    stop = stops_df[stops_df["stop_id"] == int(stop_id)].iloc[0]
+    stop_lat, stop_lon = stop["stop_lat"], stop["stop_lon"]
+    
+    resp = requests.get(
+        "https://retro.umoiq.com/service/publicJSONFeed?command=vehicleLocations&a=ttc",
+        timeout=10
+    )
+    vehicles = resp.json()["vehicle"]
+    
+    nearby_025 = [v for v in vehicles if haversine(stop_lat, stop_lon, float(v["lat"]), float(v["lon"])) <= 0.25]
+    nearby_05  = [v for v in vehicles if haversine(stop_lat, stop_lon, float(v["lat"]), float(v["lon"])) <= 0.5]
+    nearby_10  = [v for v in vehicles if haversine(stop_lat, stop_lon, float(v["lat"]), float(v["lon"])) <= 1.0]
+    
+    return {
+        "stop": stop["stop_name"],
+        "lat": stop_lat,
+        "lon": stop_lon,
+        "total_vehicles": len(vehicles),
+        "within_025km": len(nearby_025),
+        "within_05km":  len(nearby_05),
+        "within_10km":  len(nearby_10),
+        "nearest_vehicles": sorted([
+            {"id": v["id"], "route": v["routeTag"], 
+             "dist": round(haversine(stop_lat, stop_lon, float(v["lat"]), float(v["lon"])), 3)}
+            for v in vehicles
+        ], key=lambda x: x["dist"])[:5]
+    }
