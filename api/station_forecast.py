@@ -21,10 +21,12 @@ def _ensure_gtfs_static():
     """Download and extract GTFS static data if stop_times.txt is missing."""
     if not os.path.exists(f"{GTFS_PATH}/stop_times.txt"):
         print("stop_times.txt not found — downloading GTFS static data...")
-        os.makedirs(GTFS_PATH, exist_ok=True)
+        os.makedirs("data/raw/gtfs_static", exist_ok=True)
         r = requests.get(GTFS_ZIP_URL, timeout=120)
         with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            z.extractall("data/raw/gtfs_static/")
+            # Print what's inside the zip to debug
+            print("Zip contents:", z.namelist()[:10])
+            z.extractall("data/raw/gtfs_static/TTC Routes and Schedules Data")
         print("GTFS static data downloaded and extracted.")
 
 _ensure_gtfs_static()
