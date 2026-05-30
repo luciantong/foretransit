@@ -1,6 +1,7 @@
 import pandas as pd
 import json
 import os
+import math
 import requests
 import zipfile
 import io
@@ -18,21 +19,16 @@ GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 GTFS_ZIP_URL = "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/7795b45e-e65a-4465-81fc-c36b9dfff169/resource/cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/TTC%20Routes%20and%20Schedules%20Data.zip"
 
 def _ensure_gtfs_static():
-    """Download and extract GTFS static data if stop_times.txt is missing."""
     if not os.path.exists(f"{GTFS_PATH}/stop_times.txt"):
         print("stop_times.txt not found — downloading GTFS static data...")
         os.makedirs("data/raw/gtfs_static", exist_ok=True)
         r = requests.get(GTFS_ZIP_URL, timeout=120)
         with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            # Print what's inside the zip to debug
             print("Zip contents:", z.namelist()[:10])
             z.extractall("data/raw/gtfs_static/TTC Routes and Schedules Data")
         print("GTFS static data downloaded and extracted.")
 
 _ensure_gtfs_static()
-
-# ─── Load Static Data Once ───────────────────
-GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 
 def safe_read_csv(path):
     try:
@@ -40,21 +36,19 @@ def safe_read_csv(path):
     except Exception:
         return None
 
-stops_df      = safe_read_csv(f"{GTFS_PATH}/stops.txt")
-trips_df      = safe_read_csv(f"{GTFS_PATH}/trips.txt")
-routes_df     = safe_read_csv(f"{GTFS_PATH}/routes.txt")
+stops_df  = safe_read_csv(f"{GTFS_PATH}/stops.txt")
+trips_df  = safe_read_csv(f"{GTFS_PATH}/trips.txt")
+routes_df = safe_read_csv(f"{GTFS_PATH}/routes.txt")
 
-def get_stop_times_df():
-    # Load only when requested
-    return pd.read_csv(
+# Load stop_times with only needed columns to save memory
+try:
+    stop_times_df = pd.read_csv(
         f"{GTFS_PATH}/stop_times.txt",
         usecols=["trip_id", "stop_id", "arrival_time", "stop_sequence"]
     )
-
-def get_station_forecast(stop_id):
-    # ... inside your function logic ...
-    stop_times_df = get_stop_times_df()
-    scheduled = stop_times_df[stop_times_df["stop_id"] == int(stop_id)]
+except Exception:
+    stop_times_df = None
+    print("WARNING: stop_times.txt could not be loaded")
 
 # ─── Get Vehicles Near A Stop ────────────────
 def get_vehicles_near_stop(stop_lat, stop_lon, radius_km=0.25):
@@ -67,12 +61,10 @@ def get_vehicles_near_stop(stop_lat, stop_lon, radius_km=0.25):
     except Exception:
         raw_vehicles = []
 
-    # 1. Deduplicate by vehicle ID
     raw_vehicles = deduplicate_vehicles(raw_vehicles)
 
     nearby = []
     for v in raw_vehicles:
-        # 2. Reject implausible records before doing any math
         if not is_valid_vehicle(v):
             continue
         try:
@@ -114,7 +106,6 @@ def _stable_section_id(route_id):
     digest = hashlib.md5(text.encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % 100
 
-# ─── Standardized Threshold Evaluators ───────
 def _factor_tone_from_score(score_100):
     if score_100 >= 70:
         return "positive"
@@ -130,7 +121,6 @@ def _factor_color_from_score(score_100):
     return "yellow"
 
 def _make_factor(label, impact, score_100):
-    # Enforce strict rounding boundaries across all metrics
     score_value = int(max(0, min(100, round(score_100))))
     return {
         "factor": label,
@@ -147,33 +137,27 @@ def get_top_factors(delay_seconds, weather, speed, vehicle_count=0):
         factors.append(_make_factor("High dwell time", "high", 20))
     elif delay_seconds > 180:
         factors.append(_make_factor("Elevated dwell time", "medium", 35))
-
     if weather["snow"] > 0:
         factors.append(_make_factor(f"Snowfall {weather['snow']}cm", "high", 22))
     if weather["rain"] > 5:
         factors.append(_make_factor(f"Heavy rain {weather['rain']}mm", "high", 28))
     elif weather["rain"] > 1:
         factors.append(_make_factor(f"Rain {weather['rain']}mm", "medium", 42))
-
     if weather["wind"] > 45:
         factors.append(_make_factor(f"Strong wind {weather['wind']}km/h", "high", 30))
     elif weather["wind"] > 30:
         factors.append(_make_factor(f"Wind {weather['wind']}km/h", "medium", 45))
-
-    if 0 < speed < 5:  
+    if 0 < speed < 5:
         factors.append(_make_factor("Very slow traffic", "high", 24))
-
     if vehicle_count >= 8:
         factors.append(_make_factor(f"High nearby vehicle volume ({vehicle_count})", "medium", 40))
     elif 0 < vehicle_count <= 2 and delay_seconds < 180:
         factors.append(_make_factor(f"Few vehicles nearby ({vehicle_count})", "low", 82))
-
     dow = datetime.now().strftime("%A")
     if dow == "Monday":
         factors.append(_make_factor("Monday peak demand", "medium", 46))
     if dow == "Sunday":
         factors.append(_make_factor("Sunday pattern usually lowers delay", "low", 78))
-
     if not factors:
         return [_make_factor("No strong confounding factors detected right now", "low", 76)]
     return factors[:3]
@@ -201,7 +185,7 @@ def _build_features(mode_delays, weather, now):
     return {
         "delay_seconds":         max(avg_delay, 0),
         "gap_seconds":           avg_gap,
-        "cumulative_dwell_time": max(avg_delay, 0),        # keep in seconds, matches training
+        "cumulative_dwell_time": max(avg_delay, 0),
         "cumulative_leg_time":   max(avg_delay * 4, 0),
         "cumulative_stops":      len(mode_delays),
         "rain_mm":               weather["rain"],
@@ -221,7 +205,6 @@ def _build_features(mode_delays, weather, now):
 # ─── Bike Share Toronto ───────────────────────
 def get_nearby_bikeshare(stop_lat, stop_lon, radius_km=1.25):
     try:
-        import requests
         GBFS_INFO   = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_information"
         GBFS_STATUS = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_status"
         info   = requests.get(GBFS_INFO,   timeout=3).json()
@@ -253,29 +236,14 @@ def get_nearby_bikeshare(stop_lat, stop_lon, radius_km=1.25):
     except Exception:
         return []
 
-# ─── Standardized Dynamic Blending Helper ─────
+# ─── Dynamic Blending Helper ──────────────────
 def blend_prediction_score(raw_predicted, num_vehicles, mode="bus"):
-    """
-    Solves the 'Number of Vehicles Problem' by assigning distinct historical
-    baselines per mode and using an exponential saturation curve instead of a flat line.
-    """
-    # Define realistic baseline standards per mode when telemetry drops out
-    baselines = {
-        "subway": 85.0,     # Grade-separated; naturally higher baseline reliability
-        "streetcar": 74.0,  # Mixed traffic rail; susceptible to mid-route blocks
-        "bus": 76.0         # Standard rubber-tire baseline
-    }
+    baselines = {"subway": 85.0, "streetcar": 74.0, "bus": 76.0}
     fallback_score = baselines.get(mode.lower(), 76.0)
-
     if num_vehicles == 0:
         return int(fallback_score)
-
-    # Exponential trust curve: 
-    # 1 vehicle = ~50% trust, 2 vehicles = ~85% trust, 3+ vehicles = 100% trust
-    import math
     weight = 1.0 - math.exp(-1.6 * num_vehicles)
     weight = max(0.0, min(1.0, weight))
-
     blended = (raw_predicted * weight) + (fallback_score * (1.0 - weight))
     return int(max(0, min(100, round(blended))))
 
@@ -283,11 +251,10 @@ def blend_prediction_score(raw_predicted, num_vehicles, mode="bus"):
 def get_station_forecast(stop_id):
     if stops_df is None:
         return {
-            "error": "GTFS stops file is missing. Please refresh static data and retry.",
+            "error": "GTFS stops file is missing.",
             "details": f"Missing required file in {GTFS_PATH}: stops.txt",
         }
 
-    # 1. Get stop info
     stop = stops_df[stops_df["stop_id"] == int(stop_id)]
     if stop.empty:
         return {"error": f"Stop {stop_id} not found"}
@@ -297,16 +264,12 @@ def get_station_forecast(stop_id):
     stop_lon  = stop["stop_lon"]
     stop_name = stop["stop_name"]
 
-    # 2. Get vehicles near this stop
     nearby_vehicles = get_vehicles_near_stop(stop_lat, stop_lon)
-
-    # 3. Get weather + time
     weather = get_current_weather()
     now     = datetime.now()
 
-    # 4. Match each vehicle to a scheduled arrival
-    delays_by_mode = {"bus": [], "streetcar": [], "subway": []}
-    seen_vehicle_ids = set()   
+    delays_by_mode   = {"bus": [], "streetcar": [], "subway": []}
+    seen_vehicle_ids = set()
 
     for v in nearby_vehicles:
         try:
@@ -318,7 +281,6 @@ def get_station_forecast(stop_id):
                 continue
             seen_vehicle_ids.add(vid)
 
-            # ── Detect mode ──
             if routes_df is not None:
                 route_info = routes_df[routes_df["route_id"].astype(str) == str(route_tag)]
                 route_type = int(route_info["route_type"].iloc[0]) if not route_info.empty else 3
@@ -326,30 +288,24 @@ def get_station_forecast(stop_id):
                 route_type = 3
             mode = classify_mode(route_type)
 
+            # If schedule data unavailable, record zero-delay placeholder
             if stop_times_df is None or trips_df is None:
                 delays_by_mode[mode].append({
-                    "vehicle_id":     vid,
-                    "route_id":       route_tag,
-                    "direction_id":   -1,
-                    "delay_seconds":  0,
-                    "speed_kmh":      speed,
-                    "mode":           mode,
-                    "scheduled_time": None,
+                    "vehicle_id": vid, "route_id": route_tag,
+                    "direction_id": -1, "delay_seconds": 0,
+                    "speed_kmh": speed, "mode": mode, "scheduled_time": None,
                 })
                 continue
 
-            # ── Direction-aware schedule lookup ──
-            route_trips = trips_df[trips_df["route_id"].astype(str) == str(route_tag)][["trip_id", "direction_id"]]
+            route_trips = trips_df[
+                trips_df["route_id"].astype(str) == str(route_tag)
+            ][["trip_id", "direction_id"]]
 
             if route_trips.empty:
                 delays_by_mode[mode].append({
-                    "vehicle_id":     vid,
-                    "route_id":       route_tag,
-                    "direction_id":   -1,
-                    "delay_seconds":  0,
-                    "speed_kmh":      speed,
-                    "mode":           mode,
-                    "scheduled_time": None,
+                    "vehicle_id": vid, "route_id": route_tag,
+                    "direction_id": -1, "delay_seconds": 0,
+                    "speed_kmh": speed, "mode": mode, "scheduled_time": None,
                 })
                 continue
 
@@ -358,39 +314,42 @@ def get_station_forecast(stop_id):
                 (stop_times_df["trip_id"].isin(route_trips["trip_id"]))
             ].copy()
 
+            # Fallback: find nearest stop on this route if this stop not served
             if scheduled.empty:
                 try:
-                    candidates = stop_times_df[stop_times_df["trip_id"].isin(route_trips["trip_id"])].copy()
+                    candidates = stop_times_df[
+                        stop_times_df["trip_id"].isin(route_trips["trip_id"])
+                    ].copy()
                     if not candidates.empty and stops_df is not None:
-                        candidates = candidates.merge(stops_df[["stop_id", "stop_lat", "stop_lon"]], on="stop_id", how="left")
-                        candidates = candidates.dropna(subset=["stop_lat", "stop_lon"]) 
+                        candidates = candidates.merge(
+                            stops_df[["stop_id", "stop_lat", "stop_lon"]],
+                            on="stop_id", how="left"
+                        ).dropna(subset=["stop_lat", "stop_lon"])
                         vlat, vlon = float(v.get("lat")), float(v.get("lon"))
                         candidates["_dist_km"] = candidates.apply(
-                            lambda r: haversine(vlat, vlon, float(r["stop_lat"]), float(r["stop_lon"])), axis=1)
-                        
-                        nearby_candidates = candidates[candidates["_dist_km"] <= 1.0]
-                        if not nearby_candidates.empty:
-                            closest_stop_row = nearby_candidates.loc[nearby_candidates["_dist_km"].idxmin()]
+                            lambda r: haversine(vlat, vlon, float(r["stop_lat"]), float(r["stop_lon"])),
+                            axis=1
+                        )
+                        nearby_cands = candidates[candidates["_dist_km"] <= 1.0]
+                        if not nearby_cands.empty:
+                            closest_stop = nearby_cands.loc[nearby_cands["_dist_km"].idxmin()]
                             scheduled = stop_times_df[
-                                (stop_times_df["stop_id"] == closest_stop_row["stop_id"]) &
+                                (stop_times_df["stop_id"] == closest_stop["stop_id"]) &
                                 (stop_times_df["trip_id"].isin(route_trips["trip_id"]))
                             ].copy()
                 except Exception:
-                    scheduled = scheduled
+                    pass
 
             if scheduled.empty:
                 delays_by_mode[mode].append({
-                    "vehicle_id":     vid,
-                    "route_id":       route_tag,
-                    "direction_id":   -1,
-                    "delay_seconds":  0,
-                    "speed_kmh":      speed,
-                    "mode":           mode,
-                    "scheduled_time": None,
+                    "vehicle_id": vid, "route_id": route_tag,
+                    "direction_id": -1, "delay_seconds": 0,
+                    "speed_kmh": speed, "mode": mode, "scheduled_time": None,
                 })
                 continue
 
-            scheduled = scheduled.merge(route_trips[["trip_id", "direction_id"]], on="trip_id", how="left")
+            scheduled = scheduled.merge(
+                route_trips[["trip_id", "direction_id"]], on="trip_id", how="left")
             scheduled["parsed_time"] = scheduled["arrival_time"].apply(parse_gtfs_time)
             scheduled = scheduled.dropna(subset=["parsed_time"])
 
@@ -398,8 +357,10 @@ def get_station_forecast(stop_id):
                 continue
 
             scheduled["time_diff"] = (scheduled["parsed_time"] - now).dt.total_seconds()
-            upcoming = scheduled[scheduled["time_diff"] >= -60]  
-            closest = upcoming.loc[upcoming["time_diff"].idxmin()] if not upcoming.empty else scheduled.loc[scheduled["time_diff"].idxmin()]
+            upcoming = scheduled[scheduled["time_diff"] >= -60]
+            closest  = upcoming.loc[upcoming["time_diff"].idxmin()] \
+                       if not upcoming.empty \
+                       else scheduled.loc[scheduled["time_diff"].idxmin()]
 
             scheduled_time = closest.get("parsed_time")
             if scheduled_time is None:
@@ -409,30 +370,26 @@ def get_station_forecast(stop_id):
 
             if not is_valid_delay(delay_seconds):
                 delays_by_mode[mode].append({
-                    "vehicle_id":     vid,
-                    "route_id":       route_tag,
-                    "direction_id":   int(closest.get("direction_id", -1)),
-                    "delay_seconds":  0,
-                    "speed_kmh":      speed,
-                    "mode":           mode,
-                    "scheduled_time": scheduled_time
+                    "vehicle_id": vid, "route_id": route_tag,
+                    "direction_id": int(closest.get("direction_id", -1)),
+                    "delay_seconds": 0, "speed_kmh": speed,
+                    "mode": mode, "scheduled_time": scheduled_time
                 })
                 continue
 
             delays_by_mode[mode].append({
-                "vehicle_id":     vid,
-                "route_id":       route_tag,
-                "direction_id":   int(closest.get("direction_id", -1)),
-                "delay_seconds":  round(delay_seconds),
-                "speed_kmh":      speed,
-                "mode":           mode,
-                "scheduled_time": scheduled_time   
+                "vehicle_id":   vid,
+                "route_id":     route_tag,
+                "direction_id": int(closest.get("direction_id", -1)),
+                "delay_seconds": round(delay_seconds),
+                "speed_kmh":    speed,
+                "mode":         mode,
+                "scheduled_time": scheduled_time
             })
         except Exception:
             continue
 
-    # 5. Run MAGI separately per mode
-    # 5. Run MAGI separately per mode
+    # 5. Run MAGI per mode
     magi_by_mode = {}
     for mode, mode_delays in delays_by_mode.items():
         if not mode_delays:
@@ -441,18 +398,16 @@ def get_station_forecast(stop_id):
         features    = _build_features(mode_delays, weather, now)
         magi_result = run_magi(features)
 
-        # Dynamic Mode Blending applied here
-        standardized_score = blend_prediction_score(magi_result["predicted"], len(mode_delays), mode=mode)
-        
-        magi_result["predicted"] = standardized_score
-        magi_result["color"]     = _factor_color_from_score(standardized_score)
-        magi_result["label"]     = _factor_tone_from_score(standardized_score)
+        standardized_score = blend_prediction_score(
+            magi_result["selection_context"]["winner_score_100"],
+            len(mode_delays), mode=mode)
 
         avg_delay = features["delay_seconds"]
         avg_speed = features["commercial_speed"]
         avg_gap   = features["gap_seconds"]
 
-        safe_delays = [{k: v for k, v in d.items() if k != "scheduled_time"} for d in mode_delays]
+        safe_delays = [{k: v for k, v in d.items() if k != "scheduled_time"}
+                       for d in mode_delays]
 
         magi_by_mode[mode] = {
             "label":        magi_result["label"],
@@ -492,21 +447,12 @@ def get_station_forecast(stop_id):
     }
     overall_magi = run_magi(overall_features)
 
-    # Dynamic Blending applied to Global Summary using the dominant transit mode
     global_standardized_score = blend_prediction_score(
-        overall_magi["predicted"], 
-        len(all_delays), 
-        mode=dominant_mode
-    )
-    
-    overall_magi["predicted"] = global_standardized_score
-    overall_magi["color"]     = _factor_color_from_score(global_standardized_score)
-    overall_magi["label"]     = _factor_tone_from_score(global_standardized_score)
+        overall_magi["selection_context"]["winner_score_100"],
+        len(all_delays), mode=dominant_mode)
 
-    # 7. Bike Share
     bikeshare = get_nearby_bikeshare(stop_lat, stop_lon)
 
-    # 8. Return Response JSON object
     return {
         "stop_id":      stop_id,
         "stop_name":    stop_name,
