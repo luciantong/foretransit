@@ -68,9 +68,9 @@ def classify_mode(route_type: int) -> str:
 
 # ─── Delay classifier (Chen et al. 2020) ─────
 def classify_delay(seconds):
-    if seconds < 60:  return 0   # on time  (includes early)
-    if seconds < 180: return 1   # minor
-    if seconds < 300: return 2   # moderate
+    if seconds < 30:   return 0  # on time
+    if seconds < 180:  return 1  # minor
+    if seconds < 300:  return 2  # moderate
     return 3                     # severe
 
 # ─── Severity helpers ────────────────────────

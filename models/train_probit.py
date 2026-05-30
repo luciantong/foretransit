@@ -1,7 +1,7 @@
 import pandas as pd
 import joblib
 import os
-import statsmodels.api as sm # Add this
+import statsmodels.api as sm
 from models.probit_model import ProbitModel
 from datetime import datetime
 
@@ -13,24 +13,25 @@ def train_and_save_probit():
 
     df = pd.read_csv(data_path)
     
-    # Use a subset of features that are definitely not perfectly correlated
-    features = ['cumulative_dwell_time', 'cumulative_leg_time', 'cumulative_stops']
+    # FIX: Use only one workload feature (cumulative_stops) to prevent collinearity
+    # and include hour_of_day for temporal variance.
+    features = ['cumulative_stops', 'hour_of_day']
     
     X = df[features]
     
-    # CRITICAL: Add a constant (intercept) to X. 
-    # This often solves the 'Singular Matrix' error by providing a baseline.
+    # Add constant for the intercept
     X = sm.add_constant(X)
     
+    # Ensure y is binary
     y = (df['delay_severity_category'] > 0).astype(int)
     
-    print("Training Probit model with added constant...")
+    print(f"Training Probit model with features: {features}...")
     model = ProbitModel()
     model.fit(X, y)
     
     model_artifact = {
-        "params": model.params,
-        "features": features, # Note: original features list
+        "params": model.params, # This saves the trained results
+        "features": features,
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     

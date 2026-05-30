@@ -211,7 +211,7 @@ def run_magi(features, actual_severity=None):
         #   Probit  -> Chen et al. baseline (structural fallback)
         delay_seconds = features.get("delay_seconds", 0)
 
-        if "jayden" in results and delay_seconds > 60:
+        if "jayden" in results and delay_seconds > 30:
             winner   = "jayden"
             strategy = "jayden_priority_delay_signal"
         elif "xgboost" in results:

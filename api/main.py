@@ -16,6 +16,17 @@ app.add_middleware(
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 stops_df  = pd.read_csv(f"{GTFS_PATH}/stops.txt")
 
+@app.get("/vehicles/live")
+def live_vehicles():
+    try:
+        response = requests.get(
+            "https://retro.umoiq.com/service/publicJSONFeed?command=vehicleLocations&a=ttc",
+            timeout=10
+        )
+        return response.json()["vehicle"]
+    except Exception as e:
+        return {"error": str(e)}
+
 # ─── Health Check ─────────────────────────────
 @app.get("/")
 def root():
