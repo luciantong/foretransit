@@ -811,7 +811,459 @@ else:
         print(f"Records after dropping missing dates: {after_drop:,}")
         print(f"Records from 2025 onward used: {len(df_2025p):,}")
 ```
+---
+## Severe XGBoost Overfitting - Urban Bus Delay Prediction (For illustrative purpose)
 
+```
+# ============================================================
+# Demonstrating Severe XGBoost Overfitting
+# Domain: Urban Public Transit — Bus Severe Delay Prediction
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import warnings
+
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.calibration import calibration_curve
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
+
+warnings.filterwarnings("ignore")
+np.random.seed(42)
+
+# ============================================================
+# 1. SYNTHETIC TRANSIT DATASET
+#
+#    Each row represents one historical bus trip.
+#    Class 1 (~5%)  = Severe Delay
+#    Class 0 (~95%) = On Time / Minor Delay
+#
+#    Informative features (4):
+#      - Passenger_Load_Factor
+#      - Historical_Congestion_Index
+#      - Weather_Severity_Score
+#      - Scheduled_Headway_Variance
+#
+#    Noise / shortcut features (21 remaining):
+#      - Driver_ID_Hash, random sensor artifacts, etc.
+#      These have zero true predictive power but give an
+#      overfit model spurious "shortcuts" to memorise.
+# ============================================================
+
+N_SAMPLES     = 5_000
+N_FEATURES    = 25
+N_INFORMATIVE = 4
+N_REDUNDANT   = 2   # linear combos of informative features
+                     # remaining 19 are pure noise
+
+X, y = make_classification(
+    n_samples            = N_SAMPLES,
+    n_features           = N_FEATURES,
+    n_informative        = N_INFORMATIVE,
+    n_redundant          = N_REDUNDANT,
+    n_repeated           = 0,
+    n_clusters_per_class = 1,
+    weights              = [0.95, 0.05],   # 95% on-time, 5% severe delay
+    flip_y               = 0.01,           # small label noise for realism
+    random_state         = 42,
+)
+
+# Assign human-readable feature names for context
+informative_names = [
+    "Passenger_Load_Factor",
+    "Historical_Congestion_Index",
+    "Weather_Severity_Score",
+    "Scheduled_Headway_Variance",
+]
+redundant_names = ["Redundant_Congestion_Combo", "Redundant_Load_Combo"]
+noise_names     = [f"Noise_Sensor_{i:02d}" for i in range(1, N_FEATURES - N_INFORMATIVE - N_REDUNDANT + 1)]
+# noise_names includes Driver_ID_Hash as the first entry to match domain story
+noise_names[0]  = "Driver_ID_Hash"
+feature_names   = informative_names + redundant_names + noise_names
+
+print("=" * 60)
+print("  TRANSIT DATASET SUMMARY")
+print("=" * 60)
+print(f"  Total trips      : {N_SAMPLES:,}")
+print(f"  Features         : {N_FEATURES}  "
+      f"({N_INFORMATIVE} informative, {N_REDUNDANT} redundant, "
+      f"{len(noise_names)} noise)")
+print(f"  On-Time trips    : {np.sum(y == 0):,}  "
+      f"({np.sum(y == 0)/N_SAMPLES*100:.1f} %)")
+print(f"  Severe Delays    : {np.sum(y == 1):,}  "
+      f"({np.sum(y == 1)/N_SAMPLES*100:.1f} %)")
+print("=" * 60)
+
+# ============================================================
+# 2. STRATIFIED TRAIN / TEST SPLIT
+#    Stratify preserves the 95/5 imbalance in both partitions.
+# ============================================================
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size    = 0.25,   # 3,750 train | 1,250 test
+    stratify     = y,
+    random_state = 42,
+)
+
+# Standard-scale for Logistic Regression (XGBoost is scale-invariant)
+scaler         = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled  = scaler.transform(X_test)
+
+print(f"\n  Training trips   : {len(y_train):,}")
+print(f"  Test trips       : {len(y_test):,}")
+
+# ============================================================
+# 3. INTENTIONALLY OVERFITTED XGBClassifier
+#
+#    Why each hyperparameter causes overfitting:
+#      max_depth=18      → trees deep enough to memorise every
+#                          training trip, including Driver_ID_Hash
+#      n_estimators=2500 → far too many boosting rounds with no
+#                          stopping criterion
+#      learning_rate=0.3 → large step size; model overcommits
+#                          aggressively at each round
+#      subsample=1.0     → sees ALL training rows per tree,
+#                          amplifying memorisation
+#      colsample_bytree=1.0 → uses ALL 25 features per split,
+#                          giving noise features full access
+#      reg_alpha=0       → no L1 regularisation penalty
+#      reg_lambda=0      → no L2 regularisation penalty
+#      min_child_weight=1 → allows leaf nodes with a single trip
+#      gamma=0           → no minimum loss-reduction threshold
+#                          for making a split
+#    NO early_stopping_rounds → all 2,500 rounds always execute
+# ============================================================
+
+xgb_overfit = XGBClassifier(
+    n_estimators     = 2_500,
+    max_depth        = 18,
+    learning_rate    = 0.3,
+    subsample        = 1.0,
+    colsample_bytree = 1.0,
+    reg_alpha        = 0,
+    reg_lambda       = 0,
+    min_child_weight = 1,
+    gamma            = 0,
+    scale_pos_weight = 1,        # deliberately ignores class imbalance
+    eval_metric      = "logloss",
+    random_state     = 42,
+    verbosity        = 0,
+)
+
+print("\n  Training overfit XGBoost (2,500 rounds, depth 18) ...")
+xgb_overfit.fit(X_train, y_train)   # NO early_stopping_rounds
+print("  Done.")
+
+# ============================================================
+# 4. BASELINE: Default LogisticRegression
+# ============================================================
+
+print("  Training baseline Logistic Regression ...")
+log_reg = LogisticRegression(max_iter=1_000, random_state=42)
+log_reg.fit(X_train_scaled, y_train)
+print("  Done.\n")
+
+# ============================================================
+# 5. METRICS
+# ============================================================
+
+xgb_train_acc = accuracy_score(y_train, xgb_overfit.predict(X_train))
+xgb_test_acc  = accuracy_score(y_test,  xgb_overfit.predict(X_test))
+lr_train_acc  = accuracy_score(y_train, log_reg.predict(X_train_scaled))
+lr_test_acc   = accuracy_score(y_test,  log_reg.predict(X_test_scaled))
+
+xgb_gap = xgb_train_acc - xgb_test_acc
+lr_gap  = lr_train_acc  - lr_test_acc
+
+print("=" * 60)
+print("  ACCURACY SUMMARY")
+print("=" * 60)
+print(f"  {'Model':<22} {'Train':>8} {'Test':>8} {'Gap':>8}")
+print(f"  {'-'*50}")
+print(f"  {'XGBoost (Overfit)':<22} {xgb_train_acc:>8.4f} "
+      f"{xgb_test_acc:>8.4f} {xgb_gap:>8.4f}  ← memorised noise")
+print(f"  {'Logistic Regression':<22} {lr_train_acc:>8.4f} "
+      f"{lr_test_acc:>8.4f} {lr_gap:>8.4f}")
+print("=" * 60)
+
+# Predicted probabilities for calibration curves
+xgb_prob_test = xgb_overfit.predict_proba(X_test)[:, 1]
+lr_prob_test  = log_reg.predict_proba(X_test_scaled)[:, 1]
+
+frac_pos_xgb, mean_pred_xgb = calibration_curve(
+    y_test, xgb_prob_test, n_bins=10, strategy="uniform"
+)
+frac_pos_lr, mean_pred_lr = calibration_curve(
+    y_test, lr_prob_test, n_bins=10, strategy="uniform"
+)
+
+# ============================================================
+# 6. TWO-PANEL VISUALISATION
+# ============================================================
+
+DARK_BG  = "#0f1117"
+PANEL_BG = "#1a1d27"
+GRID_COL = "#2e3246"
+TEXT_COL = "#e8eaf6"
+XGB_COL  = "#ef5350"   # red  — overfit model
+LR_COL   = "#42a5f5"   # blue — logistic regression baseline
+GAP_COL  = "#ffca28"   # amber — gap annotation
+PERF_COL = "#66bb6a"   # green — perfect calibration line
+
+fig, axes = plt.subplots(
+    1, 2,
+    figsize     = (17, 7.5),
+    facecolor   = DARK_BG,
+    gridspec_kw = {"wspace": 0.38},
+)
+
+fig.suptitle(
+    "Severe XGBoost Overfitting — Urban Bus Delay Prediction\n"
+    "5,000 Historical Transit Trips  ·  95% On-Time / 5% Severe Delay  "
+    "·  25 Features (4 Informative + 21 Noise incl. Driver ID Hash)",
+    fontsize   = 12.5,
+    fontweight = "bold",
+    color      = TEXT_COL,
+    y          = 1.03,
+)
+
+# ----------------------------------------------------------
+# LEFT PANEL — Generalisation Gap Bar Chart
+# ----------------------------------------------------------
+ax1 = axes[0]
+ax1.set_facecolor(PANEL_BG)
+
+x     = np.array([0, 1])
+width = 0.28
+
+bars_train = ax1.bar(
+    x - width / 2,
+    [lr_train_acc, xgb_train_acc],
+    width,
+    color   = [LR_COL, XGB_COL],
+    alpha   = 0.88,
+    zorder  = 3,
+    label   = "Training Accuracy",
+)
+bars_test = ax1.bar(
+    x + width / 2,
+    [lr_test_acc, xgb_test_acc],
+    width,
+    color     = [LR_COL, XGB_COL],
+    alpha     = 0.38,
+    hatch     = "//",
+    edgecolor = "white",
+    linewidth = 0.6,
+    zorder    = 3,
+    label     = "Test Accuracy (Unseen Trips)",
+)
+
+# Value labels on every bar
+for bar in list(bars_train) + list(bars_test):
+    h = bar.get_height()
+    ax1.text(
+        bar.get_x() + bar.get_width() / 2,
+        h + 0.003,
+        f"{h:.3f}",
+        ha         = "center",
+        va         = "bottom",
+        fontsize   = 9,
+        color      = TEXT_COL,
+        fontweight = "bold",
+    )
+
+# Double-headed arrow annotating the XGBoost gap
+bracket_x = (x[1] + width / 2) + 0.18
+ax1.annotate(
+    "",
+    xy         = (bracket_x, xgb_test_acc),
+    xytext     = (bracket_x, xgb_train_acc),
+    arrowprops = dict(arrowstyle="<->", color=GAP_COL, lw=2.4),
+)
+ax1.text(
+    bracket_x + 0.04,
+    (xgb_train_acc + xgb_test_acc) / 2,
+    f"Overfit\nGAP\n{xgb_gap:.3f}",
+    color      = GAP_COL,
+    fontsize   = 9,
+    fontweight = "bold",
+    va         = "center",
+)
+
+ax1.set_xticks(x)
+ax1.set_xticklabels(
+    ["Logistic Regression\n(Baseline)", "XGBoost\n(Overfit — No Reg.)"],
+    color    = TEXT_COL,
+    fontsize = 10.5,
+)
+ax1.set_ylabel("Bus Delay Prediction Accuracy", color=TEXT_COL, fontsize=11)
+ax1.set_ylim(0.82, 1.06)
+ax1.set_title(
+    "Generalisation Gap\nTraining Trips vs. Unseen Test Trips",
+    color      = TEXT_COL,
+    fontsize   = 12,
+    fontweight = "bold",
+    pad        = 12,
+)
+ax1.tick_params(colors=TEXT_COL)
+ax1.spines[:].set_color(GRID_COL)
+ax1.yaxis.grid(True, color=GRID_COL, linestyle="--", alpha=0.45, zorder=0)
+ax1.set_axisbelow(True)
+
+solid_patch   = mpatches.Patch(color="grey", alpha=0.88,
+                                label="Training Accuracy")
+hatched_patch = mpatches.Patch(facecolor="grey", alpha=0.38,
+                                hatch="//", edgecolor="white",
+                                label="Test Accuracy (Unseen Trips)")
+ax1.legend(
+    handles   = [solid_patch, hatched_patch],
+    loc       = "lower right",
+    fontsize  = 9,
+    facecolor = PANEL_BG,
+    edgecolor = GRID_COL,
+    labelcolor= TEXT_COL,
+)
+
+# Explanatory footnote
+ax1.text(
+    0.5, -0.13,
+    "XGBoost memorised Driver_ID_Hash & sensor noise on training trips.\n"
+    "Performance collapses on unseen routes it has never encountered.",
+    transform  = ax1.transAxes,
+    ha         = "center",
+    fontsize   = 8.2,
+    color      = "#9e9e9e",
+    style      = "italic",
+)
+
+# ----------------------------------------------------------
+# RIGHT PANEL — Transit Propensity / Calibration Curve
+# ----------------------------------------------------------
+ax2 = axes[1]
+ax2.set_facecolor(PANEL_BG)
+
+# Perfect calibration reference diagonal
+ax2.plot(
+    [0, 1], [0, 1],
+    linestyle = "--",
+    color     = PERF_COL,
+    linewidth = 2,
+    label     = "Perfect Calibration (Ideal)",
+    zorder    = 2,
+)
+
+# Logistic Regression calibration
+ax2.plot(
+    mean_pred_lr, frac_pos_lr,
+    marker    = "s",
+    color     = LR_COL,
+    linewidth = 2,
+    markersize= 7,
+    label     = "Logistic Regression (Baseline)",
+    zorder    = 3,
+)
+
+# Overfit XGBoost calibration
+ax2.plot(
+    mean_pred_xgb, frac_pos_xgb,
+    marker    = "o",
+    linestyle = "-.",
+    color     = XGB_COL,
+    linewidth = 2.5,
+    markersize= 8,
+    label     = "XGBoost (Overfit) — Distorted Propensity",
+    zorder    = 4,
+)
+
+# Shade miscalibration region for XGBoost
+ax2.fill_between(
+    mean_pred_xgb,
+    mean_pred_xgb,
+    frac_pos_xgb,
+    alpha = 0.15,
+    color = XGB_COL,
+    label = "XGBoost Calibration Error Region",
+)
+
+ax2.set_xlim(-0.02, 1.02)
+ax2.set_ylim(-0.02, 1.02)
+ax2.set_xlabel(
+    "Predicted Severe Delay Probability (Model Output)",
+    color    = TEXT_COL,
+    fontsize = 11,
+)
+ax2.set_ylabel(
+    "Observed Severe Delay Rate (Ground Truth)",
+    color    = TEXT_COL,
+    fontsize = 11,
+)
+ax2.set_title(
+    "Transit Propensity Distortion\n"
+    "Reliability Diagram — Severe Bus Delay Probability Estimates",
+    color      = TEXT_COL,
+    fontsize   = 12,
+    fontweight = "bold",
+    pad        = 12,
+)
+ax2.tick_params(colors=TEXT_COL)
+ax2.spines[:].set_color(GRID_COL)
+ax2.xaxis.grid(True, color=GRID_COL, linestyle="--", alpha=0.45, zorder=0)
+ax2.yaxis.grid(True, color=GRID_COL, linestyle="--", alpha=0.45, zorder=0)
+ax2.set_axisbelow(True)
+ax2.legend(
+    fontsize  = 8.8,
+    loc       = "upper left",
+    facecolor = PANEL_BG,
+    edgecolor = GRID_COL,
+    labelcolor= TEXT_COL,
+)
+
+# Callout annotation on worst distortion point
+worst_idx = int(np.argmax(np.abs(frac_pos_xgb - mean_pred_xgb)))
+ax2.annotate(
+    "XGBoost over-promises\nsevere delay risk here.\nUnsafe for transit ops.",
+    xy         = (mean_pred_xgb[worst_idx], frac_pos_xgb[worst_idx]),
+    xytext     = (0.42, 0.08),
+    fontsize   = 8.5,
+    color      = GAP_COL,
+    fontweight = "bold",
+    arrowprops = dict(
+        arrowstyle      = "->",
+        color           = GAP_COL,
+        lw              = 1.8,
+        connectionstyle = "arc3,rad=0.35",
+    ),
+)
+
+# Explanatory footnote
+ax2.text(
+    0.5, -0.13,
+    "A perfectly calibrated model predicts 40% severe delay → 40% of those trips\n"
+    "are truly delayed. XGBoost's estimates cluster near 0 or 1 — dangerously overconfident.",
+    transform  = ax2.transAxes,
+    ha         = "center",
+    fontsize   = 8.2,
+    color      = "#9e9e9e",
+    style      = "italic",
+)
+
+plt.tight_layout()
+plt.savefig(
+    "transit_xgboost_overfitting.png",
+    dpi         = 150,
+    bbox_inches = "tight",
+    facecolor   = DARK_BG,
+)
+plt.show()
+print("\nFigure saved → transit_xgboost_overfitting.png")
+```
 ---
 
 ## Academic references
