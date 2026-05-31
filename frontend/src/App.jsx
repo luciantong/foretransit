@@ -233,6 +233,60 @@ function factorBadgeLabel(factor) {
   return value || 'loading'
 }
 
+function directionLabelFromId(directionId) {
+  const parsed = Number(directionId)
+  if (parsed === 0) {
+    return 'EASTBOUND / SOUTHBOUND'
+  }
+  if (parsed === 1) {
+    return 'WESTBOUND / NORTHBOUND'
+  }
+  return 'DIRECTION TBA'
+}
+
+function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
+  const confidence = compactConfidence(winnerScore).toUpperCase()
+  const byMode = forecastData?.by_mode
+  const rows = []
+  const seen = new Set()
+
+  const busVehicles = Array.isArray(byMode?.bus?.vehicles) ? byMode.bus.vehicles : []
+  for (const vehicle of busVehicles) {
+    const routeId = String(vehicle?.route_id || '').trim()
+    if (!routeId) {
+      continue
+    }
+    const directionLabel = directionLabelFromId(vehicle?.direction_id)
+    const dedupeKey = `${routeId}::${directionLabel}`
+    if (seen.has(dedupeKey)) {
+      continue
+    }
+    seen.add(dedupeKey)
+
+    rows.push({
+      routeLabel: routeId,
+      directionLabel,
+    })
+  }
+
+  while (rows.length < 3) {
+    rows.push({
+      routeLabel: '(BUS ROUTE)',
+      directionLabel: 'WESTBOUND / SOUTHBOUND',
+    })
+  }
+
+  const gapMinRaw = Number(byMode?.bus?.gap_min)
+  const gapMin = Number.isFinite(gapMinRaw) && gapMinRaw > 0 ? gapMinRaw : 4
+  const baseEta = Number.isFinite(nextArrivalMins) ? Number(nextArrivalMins) : null
+
+  return rows.map((row, idx) => ({
+    ...row,
+    etaLabel: baseEta === null ? '--' : String(Math.max(0, Math.round(baseEta + idx * gapMin))),
+    statusLabel: confidence === 'LOADING' ? 'TBD' : confidence,
+  }))
+}
+
 function serviceStatusFromScore(score) {
   if (typeof score !== 'number' || !Number.isFinite(score)) {
     return 'Unknown'
@@ -358,14 +412,14 @@ function buildModelDrivenFactors(forecastData) {
 }
 
 function normalizeScoreFromForecast(data) {
-  const winnerScore = data?.magi?.selection_context?.winner_score_100
-  if (typeof winnerScore === 'number' && Number.isFinite(winnerScore)) {
-    return Math.max(0, Math.min(100, winnerScore))
-  }
-
   const predicted = data?.current?.predicted
   if (typeof predicted === 'number' && Number.isFinite(predicted) && predicted >= 0 && predicted <= 100) {
     return predicted
+  }
+
+  const winnerScore = data?.magi?.selection_context?.winner_score_100
+  if (typeof winnerScore === 'number' && Number.isFinite(winnerScore)) {
+    return Math.max(0, Math.min(100, winnerScore))
   }
 
   const label = String(data?.current?.label || '').toLowerCase()
@@ -982,19 +1036,19 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
   }
 
   const magi = forecast.data?.magi
-  const winnerScore = magi?.selection_context?.winner_score_100
+  const stationScore = normalizeScoreFromForecast(forecast.data)
   const modelDrivenFactors = buildModelDrivenFactors(forecast.data)
   const fallbackFactors = Array.isArray(forecast.data?.top_factors) ? forecast.data.top_factors : []
   const factors = modelDrivenFactors.length > 0 ? modelDrivenFactors : fallbackFactors
   const usingModelFactors = modelDrivenFactors.length > 0
   const scoreHeading = 'Reliability Score'
-  const displayScore = typeof winnerScore === 'number' ? Math.round(winnerScore) : '--'
-  const scoreColor = colorByScore(winnerScore)
-  const serviceStatus = magi?.service_status || serviceStatusFromScore(winnerScore)
+  const displayScore = typeof stationScore === 'number' ? Math.round(stationScore) : '--'
+  const scoreColor = colorByScore(stationScore)
+  const serviceStatus = serviceStatusFromScore(stationScore)
   const nextArrival = forecast.data?.current?.estimated_arrival || 'loading'
   const nextArrivalMins = forecast.data?.current?.estimated_arrival_in_min
   const etaSuffix = typeof nextArrivalMins === 'number' ? ` (${nextArrivalMins} min)` : ''
-  const adviceText = magi?.advice_text || adviceFromScore(winnerScore)
+  const adviceText = adviceFromScore(stationScore)
   const displayTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
   const displayDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, ' / ')
   const displayWeekday = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase().split('').join(' ')
@@ -1004,6 +1058,10 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
   const liveTempF = typeof liveTemp === 'number' ? Math.round((liveTemp * 9) / 5 + 32) : null
   const liveWindMph = typeof liveWind === 'number' ? Math.round(liveWind * 0.621371) : null
   const nextVehicleLine = typeof nextArrivalMins === 'number' ? `${nextArrivalMins} MINUTES` : String(nextArrival || 'loading').toUpperCase()
+  const nextArrivalRows = useMemo(
+    () => buildNextArrivalRows(forecast.data, nextArrivalMins, stationScore),
+    [forecast.data, nextArrivalMins, stationScore],
+  )
 
   return (
     <main className="minimal-shell">
@@ -1077,7 +1135,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
               <div className="widget-meta-col">
                 <div className="widget-meta-group">
                   <p className="widget-meta-label">confidence...</p>
-                  <p className="widget-meta-value">{compactConfidence(winnerScore)}</p>
+                  <p className="widget-meta-value">{compactConfidence(stationScore)}</p>
                 </div>
                 <div className="widget-meta-group">
                   <p className="widget-meta-label">service status...</p>
@@ -1097,7 +1155,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
             </div>
 
             <div className="widget-summary-box">
-              <p className="widget-summary-title">temperature</p>
+              <p className="widget-summary-title">temperature...</p>
               <p className="widget-arrival">
                 {typeof liveTemp === 'number' ? `${Math.round(liveTemp)}°C` : 'loading'}
                 {' // '}
@@ -1113,6 +1171,20 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
                 {' // '}
                 {typeof liveWindMph === 'number' ? `${liveWindMph} mph` : 'loading'}
               </p>
+            </div>
+          </div>
+
+          <div className="next-arrivals-strip" aria-live="polite">
+            <p className="next-arrivals-title">next arrivals...</p>
+            <div className="next-arrivals-list" role="list">
+              {nextArrivalRows.map((row, idx) => (
+                <div key={`${row.routeLabel}-${row.directionLabel}-${idx}`} className="next-arrival-row" role="listitem">
+                  <span className="next-arrival-route">{row.routeLabel}</span>
+                  <span className="next-arrival-direction">{row.directionLabel}</span>
+                  <span className="next-arrival-time">{row.etaLabel}</span>
+                  <span className="next-arrival-tag">{row.statusLabel}</span>
+                </div>
+              ))}
             </div>
           </div>
 

@@ -1685,6 +1685,60 @@ body.theme-dark .factor-item--negative .factor-score {
   border-radius: 0;
   padding: 0;
 }
+.minimal-shell .next-arrivals-strip {
+  margin-top: 0.42rem;
+}
+.minimal-shell .next-arrivals-title {
+  margin: 0;
+  font-size: 0.94rem;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: #000000;
+}
+.minimal-shell .next-arrivals-list {
+  margin-top: 0.22rem;
+  border-top: 1.5px solid rgba(19, 23, 23, 0.42);
+}
+.minimal-shell .next-arrival-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(50px, 90px) auto;
+  align-items: center;
+  gap: 0.9rem;
+  border-bottom: 1.5px solid rgba(19, 23, 23, 0.42);
+  padding: 0.48rem 0;
+}
+.minimal-shell .next-arrival-route,
+.minimal-shell .next-arrival-direction,
+.minimal-shell .next-arrival-time {
+  font-size: 14.6px;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  color: #000000;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.minimal-shell .next-arrival-route {
+  letter-spacing: 0.08em;
+}
+.minimal-shell .next-arrival-direction {
+  letter-spacing: 0.09em;
+}
+.minimal-shell .next-arrival-time {
+  text-align: right;
+}
+.minimal-shell .next-arrival-tag {
+  justify-self: end;
+  min-width: 88px;
+  text-align: center;
+  border: none;
+  background: #1a573c;
+  color: #e5d9a9;
+  padding: 0.14rem 0.4rem;
+  font-size: 14.6px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 
 .minimal-shell .widget-right .widget-title {
   margin-bottom: 0.2rem;
@@ -1781,6 +1835,23 @@ body.theme-dark .factor-item--negative .factor-score {
   .minimal-shell .factor-score {
     min-width: 6.2rem;
     font-size: 0.95rem;
+  }
+
+  .minimal-shell .next-arrival-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(34px, 56px) auto;
+    gap: 0.5rem;
+  }
+
+  .minimal-shell .next-arrival-route,
+  .minimal-shell .next-arrival-direction,
+  .minimal-shell .next-arrival-time {
+    font-size: 0.86rem;
+    letter-spacing: 0.05em;
+  }
+
+  .minimal-shell .next-arrival-tag {
+    min-width: 72px;
+    font-size: 0.86rem;
   }
 }
 
