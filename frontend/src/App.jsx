@@ -247,11 +247,25 @@ function directionLabelFromId(directionId) {
 function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
   const confidence = compactConfidence(winnerScore).toUpperCase()
   const byMode = forecastData?.by_mode
+  const dominantMode = String(forecastData?.current?.dominant_mode || '').toLowerCase()
   const rows = []
   const seen = new Set()
 
-  const busVehicles = Array.isArray(byMode?.bus?.vehicles) ? byMode.bus.vehicles : []
-  for (const vehicle of busVehicles) {
+  const preferredMode = ['bus', 'streetcar', 'subway'].includes(dominantMode) ? dominantMode : null
+  const candidateModes = preferredMode ? [preferredMode, 'bus', 'streetcar', 'subway'] : ['bus', 'streetcar', 'subway']
+
+  let activeMode = null
+  let activeVehicles = []
+  for (const mode of candidateModes) {
+    const vehicles = Array.isArray(byMode?.[mode]?.vehicles) ? byMode[mode].vehicles : []
+    if (vehicles.length > 0) {
+      activeMode = mode
+      activeVehicles = vehicles
+      break
+    }
+  }
+
+  for (const vehicle of activeVehicles) {
     const routeId = String(vehicle?.route_id || '').trim()
     if (!routeId) {
       continue
@@ -269,14 +283,20 @@ function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
     })
   }
 
+  const fallbackLabel = activeMode === 'subway'
+    ? '(SUBWAY LINE)'
+    : activeMode === 'streetcar'
+      ? '(STREETCAR ROUTE)'
+      : '(BUS ROUTE)'
+
   while (rows.length < 3) {
     rows.push({
-      routeLabel: '(BUS ROUTE)',
+      routeLabel: fallbackLabel,
       directionLabel: 'WESTBOUND / SOUTHBOUND',
     })
   }
 
-  const gapMinRaw = Number(byMode?.bus?.gap_min)
+  const gapMinRaw = Number(byMode?.[activeMode || 'bus']?.gap_min)
   const gapMin = Number.isFinite(gapMinRaw) && gapMinRaw > 0 ? gapMinRaw : 4
   const baseEta = Number.isFinite(nextArrivalMins) ? Number(nextArrivalMins) : null
 
@@ -553,7 +573,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     async function loadStops() {
       setStops((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const data = await fetchJson('/stops?limit=5000')
+        const data = await fetchJson('/stops?limit=12000')
         if (!cancelled) {
           setStops({ loading: false, error: '', items: normalizeStopsPayload(data) })
         }

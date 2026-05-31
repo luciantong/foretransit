@@ -22,6 +22,14 @@ api = APIRouter(prefix="/api")
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 stops_df  = pd.read_csv(f"{GTFS_PATH}/stops.txt")
 
+
+def infer_stop_mode(stop_name: str) -> str:
+    name = str(stop_name or "").strip().lower()
+    # GTFS stop metadata in this project does not include reliable parent_station/location_type,
+    # so use station naming patterns to surface rail stops on the map.
+    rail_tokens = [" station", "station ", " station -", " subway", "rt station"]
+    return "railway" if any(token in name for token in rail_tokens) else "bus"
+
 @api.get("/vehicles/live")
 def live_vehicles():
     try:
@@ -40,15 +48,16 @@ def root():
 
 # ─── All Stops ────────────────────────────────
 @api.get("/stops")
-def get_stops(limit: int = 5000):
-    df = stops_df.head(limit)
+def get_stops(limit: int = 12000):
+    safe_limit = max(1, min(int(limit), len(stops_df)))
+    df = stops_df.head(safe_limit)
     stops = df.rename(columns={
         "stop_id":   "stop_id",
         "stop_name": "stop_name",
         "stop_lat":  "lat",
         "stop_lon":  "lon"
     })[["stop_id", "stop_name", "lat", "lon"]].copy()
-    stops["mode"] = "bus"  # default; refine if you have route_type per stop
+    stops["mode"] = stops["stop_name"].apply(infer_stop_mode)
     return {"stops": stops.to_dict(orient="records")}
 
 # ─── Stop Search ──────────────────────────────
@@ -62,7 +71,7 @@ def search_stops(q: str = "", limit: int = 8):
         "stop_lat": "lat",
         "stop_lon": "lon"
     })[["stop_id", "stop_name", "lat", "lon"]].copy()
-    stops["mode"] = "bus"
+    stops["mode"] = stops["stop_name"].apply(infer_stop_mode)
     return {"stops": stops.to_dict(orient="records")}
 
 # ─── Station Forecast ─────────────────────────
