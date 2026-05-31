@@ -18,37 +18,17 @@ except ImportError:
 # ─── Feature Tiers ───────────────────────────
 
 # TIER 1 — Chen et al. proven variables
-TIER_1 = [
-    "cumulative_dwell_time",   # β=0.237 most important
-    "cumulative_leg_time",     # β=0.186
-    "cumulative_stops",        # β=0.099
+# Replace ALL_FEATURES = TIER_1 + TIER_2 + TIER_3 with:
+ALL_FEATURES = [
+    "cumulative_dwell_time",
+    "cumulative_leg_time", 
+    "cumulative_stops",
     "day_of_week",
     "section_id",
-    "rain_mm",
-    "wind_speed",
-    "visibility_km"
-]
-
-# TIER 2 — Trépanier et al. additions
-TIER_2 = [
-    "commercial_speed",
-    "occupancy_rate",
-    "schedule_adherence",
     "hour_of_day",
-    "is_peak_hour"
+    "is_sunday",
+    "route_type"
 ]
-
-# TIER 3 — Toronto specific
-TIER_3 = [
-    "temperature_c",
-    "snow_mm",
-    "is_holiday",
-    "is_special_event",
-    "delay_trend",
-    "route_historical_avg"
-]
-
-ALL_FEATURES = TIER_1 + TIER_2 + TIER_3
 
 # ─── Load or Create Model ────────────────────
 def load_model(mode="bus"):

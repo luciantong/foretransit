@@ -199,7 +199,8 @@ def _build_features(mode_delays, weather, now):
         "is_sunday":             int(now.weekday() == 6),
         "day_of_week":           now.weekday(),
         "section_id":            _stable_section_id(section_source),
-        "mode":                  mode_delays[0]["mode"]
+        "mode":                  mode_delays[0]["mode"],
+        "route_type":            1 if mode_delays[0]["mode"] == "subway" else (0 if mode_delays[0]["mode"] == "streetcar" else 3),
     }
 
 # ─── Bike Share Toronto ───────────────────────
