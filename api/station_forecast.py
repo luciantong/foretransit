@@ -18,15 +18,18 @@ from models.MAGI import run_magi
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 GTFS_ZIP_URL = "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/7795b45e-e65a-4465-81fc-c36b9dfff169/resource/cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/TTC%20Routes%20and%20Schedules%20Data.zip"
 
+import threading
+
 def _ensure_gtfs_static():
     if not os.path.exists(f"{GTFS_PATH}/stop_times.txt"):
-        print("stop_times.txt not found — downloading GTFS static data...")
-        os.makedirs("data/raw/gtfs_static", exist_ok=True)
-        r = requests.get(GTFS_ZIP_URL, timeout=120)
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            print("Zip contents:", z.namelist()[:10])
-            z.extractall("data/raw/gtfs_static/TTC Routes and Schedules Data")
-        print("GTFS static data downloaded and extracted.")
+        print("stop_times.txt not found — downloading in background...")
+        def download():
+            os.makedirs("data/raw/gtfs_static", exist_ok=True)
+            r = requests.get(GTFS_ZIP_URL, timeout=300)
+            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+                z.extractall("data/raw/gtfs_static/TTC Routes and Schedules Data")
+            print("GTFS static data downloaded and extracted.")
+        threading.Thread(target=download, daemon=True).start()
 
 _ensure_gtfs_static()
 
