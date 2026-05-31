@@ -39,11 +39,6 @@ select {
   font: inherit;
 }
 
-body.theme-dark {
-  color: #f3ecd3;
-  background: #1d2124;
-}
-
 code,
 pre {
   font-family: var(--font-mono);

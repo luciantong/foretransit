@@ -464,20 +464,16 @@ function MapViewTracker({ onViewChange }) {
   return null
 }
 
-function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onToggleDarkMode }) {
+function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
   const [query, setQuery] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [selectedModes, setSelectedModes] = useState(['railway', 'bus'])
   const [stops, setStops] = useState({ loading: true, error: '', items: [] })
   const [results, setResults] = useState({ loading: false, error: '', items: [] })
   const [bikeCatalog, setBikeCatalog] = useState({ loading: true, error: '', items: [] })
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastRefreshAt, setLastRefreshAt] = useState(null)
   const [mapView, setMapView] = useState({ zoom: 11, center: null, bounds: null })
   const [scoreByStopId, setScoreByStopId] = useState({})
   const searchRef = useRef(null)
-  const modeFilterRef = useRef(null)
   const pendingScoreRequestsRef = useRef(new Set())
   const scoreRetryAfterRef = useRef(new Map())
   const scoreByStopIdRef = useRef({})
@@ -538,21 +534,6 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [dropdownOpen])
-
-  useEffect(() => {
-    if (!modeMenuOpen) {
-      return undefined
-    }
-
-    function handleClickOutside(event) {
-      if (modeFilterRef.current && !modeFilterRef.current.contains(event.target)) {
-        setModeMenuOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [modeMenuOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -628,7 +609,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
   }, [mapView.bounds, mapView.zoom, selectedModeSet, stops.items])
 
   const visibleBikeStations = useMemo(() => {
-    if (!mapView.bounds) {
+    if (mapView.zoom < MAP_RENDER_FADE_START_ZOOM || !mapView.bounds) {
       return []
     }
     if (!selectedModeSet.has('bike')) {
@@ -637,6 +618,9 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
 
     return bikeCatalog.items.filter((bike) => mapView.bounds.contains([bike.lat, bike.lon]))
   }, [bikeCatalog.items, mapView.bounds, selectedModeSet])
+
+  const renderedStationCount = visibleStops.length + visibleBikeStations.length
+  const mapOverlayHintText = renderedStationCount > 0 ? `${renderedStationCount} stations rendered.` : 'zoom in to see stations...'
 
   useEffect(() => {
     const batchSize = 80
@@ -713,62 +697,20 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
     }
   }, [mapView.center, visibleStops])
 
-  async function refreshMapData() {
-    if (isRefreshing) {
-      return
-    }
-
-    setIsRefreshing(true)
-    setStops((prev) => ({ ...prev, loading: true, error: '' }))
-    setBikeCatalog((prev) => ({ ...prev, loading: true, error: '' }))
-    pendingScoreRequestsRef.current.clear()
-    scoreRetryAfterRef.current.clear()
-    setScoreByStopId({})
-
-    try {
-      const [stopsResult, bikesResult] = await Promise.allSettled([fetchJson('/stops?limit=5000'), fetchJson('/bikeshare/stations?limit=5000')])
-
-      if (stopsResult.status === 'fulfilled') {
-        setStops({
-          loading: false,
-          error: '',
-          items: normalizeStopsPayload(stopsResult.value),
-        })
-      } else {
-        setStops((prev) => ({
-          loading: false,
-          error: describeFetchError(stopsResult.reason, '/stops'),
-          items: prev.items,
-        }))
-      }
-
-      if (bikesResult.status === 'fulfilled') {
-        setBikeCatalog({ loading: false, error: '', items: normalizeBikeStationsPayload(bikesResult.value) })
-      } else {
-        setBikeCatalog((prev) => ({
-          loading: false,
-          error: describeFetchError(bikesResult.reason, '/bikeshare/stations'),
-          items: prev.items,
-        }))
-      }
-
-      setLastRefreshAt(new Date())
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
+  const now = new Date()
+  const displayDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, ' / ')
+  const displayWeekday = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase().split('').join(' ')
 
   return (
     <main className="landing-shell">
       <section className="landing-top">
         <div className="landing-top-head">
-          <div>
-            <p className="landing-eyebrow">ForeTransit</p>
-            <h1 className="landing-title">TTC Station Map</h1>
+          <div className="landing-title-strip">&gt;&gt;&gt; ttc traffic forecast</div>
+          <div className="landing-date-block">
+            <p className="landing-date-brand">foretransit</p>
+            <p className="landing-date-value">{displayDate}</p>
+            <p className="landing-date-weekday">{displayWeekday}</p>
           </div>
-          <button type="button" className="theme-toggle-btn" onClick={onToggleDarkMode}>
-            {darkMode ? 'Light mode' : 'Dark mode'}
-          </button>
         </div>
 
         <div className="map-search-panel" ref={searchRef}>
@@ -782,7 +724,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
               setDropdownOpen(!!next.trim())
             }}
             onFocus={() => setDropdownOpen(!!query.trim())}
-            placeholder="Search station names"
+            placeholder="station lookup"
           />
 
           {dropdownOpen && query.trim() ? (
@@ -799,6 +741,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
                   className="search-item"
                   onClick={() => {
                     onSelectStop(stop)
+                    onEnterForecast()
                     setQuery(stop.stop_name)
                     setDropdownOpen(false)
                   }}
@@ -811,47 +754,30 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
           ) : null}
         </div>
 
-        <div className="map-actions">
-          <button type="button" className="map-action-btn open-forecast-btn" onClick={onEnterForecast} disabled={!selectedStop}>
-            {selectedStop ? `Open forecast for ${selectedStop.stop_name}` : 'Select a station'}
-          </button>
-          <button type="button" className="map-action-btn refresh-data-btn" onClick={refreshMapData} disabled={isRefreshing}>
-            {isRefreshing ? 'Refreshing...' : 'Refresh data'}
-          </button>
-          <div className="mode-filter-dropdown" ref={modeFilterRef}>
-            <button
-              type="button"
-              className={`mode-filter-trigger ${modeMenuOpen ? 'is-open' : ''}`}
-              onClick={() => setModeMenuOpen((open) => !open)}
-              aria-expanded={modeMenuOpen}
-              aria-haspopup="menu"
-            >
-              Transit types ({selectedModes.length})
-            </button>
-            {modeMenuOpen ? (
-              <div className="mode-filter-menu" role="group" aria-label="Filter map station types">
-                {TRANSIT_MODE_OPTIONS.map((option) => (
-                  <label key={option.value} className="mode-filter-option">
-                    <input
-                      type="checkbox"
-                      checked={selectedModes.includes(option.value)}
-                      onChange={() => toggleMode(option.value)}
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
-            ) : null}
-          </div>
+        <div className="map-mode-row" role="group" aria-label="Filter map station types">
+          {TRANSIT_MODE_OPTIONS.map((option) => {
+            const label = option.value === 'railway' ? 'metro' : option.value === 'bike' ? 'bicycle' : 'bus'
+            return (
+              <label key={option.value} className="map-mode-option">
+                <input
+                  type="checkbox"
+                  checked={selectedModes.includes(option.value)}
+                  onChange={() => toggleMode(option.value)}
+                />
+                <span className={`map-mode-glyph map-mode-glyph--${option.value}`} aria-hidden="true" />
+                <span>{label}</span>
+              </label>
+            )
+          })}
         </div>
         {stops.error ? <p className="search-error">{stops.error}</p> : null}
         {bikeCatalog.error ? <p className="search-error">{bikeCatalog.error}</p> : null}
-        {lastRefreshAt ? (
-          <p className="refresh-note">Last refreshed {lastRefreshAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-        ) : null}
       </section>
 
       <section className="map-box">
+        <div className="map-overlay-hint" aria-hidden="true">
+          {mapOverlayHintText}
+        </div>
         <MapContainer center={[43.6532, -79.3832]} zoom={11} minZoom={10} maxZoom={17} className="ttc-map">
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -914,50 +840,7 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast, darkMode, onT
           ))}
         </MapContainer>
 
-        <aside className="map-legend" aria-label="Map legend">
-          <p className="map-legend-title">Legend</p>
-          <div className="map-legend-grid">
-            <div className="legend-item">
-              <span className="legend-shape legend-shape--railway" />
-              <span>Train</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-shape legend-shape--bus" />
-              <span>Bus</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-shape legend-shape--bike" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14">
-                  <path d="M8 2 L14 13 L2 13 Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                </svg>
-              </span>
-              <span>Bikeshare</span>
-            </div>
-          </div>
-
-          <p className="map-legend-subtitle">Outline score</p>
-          <div className="map-legend-grid">
-            <div className="legend-item">
-              <span className="legend-dot legend-dot--good" />
-              <span>Good</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-dot legend-dot--fair" />
-              <span>Moderate</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-dot legend-dot--poor" />
-              <span>Poor</span>
-            </div>
-          </div>
-        </aside>
       </section>
-
-      <p className="map-render-hint">
-        {mapView.zoom < MAP_RENDER_FADE_START_ZOOM
-          ? 'Zoom in to start revealing likely-use stops.'
-          : `Rendering ${visibleStops.length} transit stops and ${visibleBikeStations.length} bikeshare stations in the current view.`}
-      </p>
     </main>
   )
 }
@@ -1124,21 +1007,21 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
 
   return (
     <main className="minimal-shell">
-      <header className="info-booth" aria-live="polite">
+      <div className="forecast-top-row" aria-live="polite">
         <div className="booth-left">
           <button type="button" className="back-map-btn" onClick={backToMap}>
             {'<<< back to map'}
           </button>
         </div>
 
+        <p className="forecast-time">{displayTime}</p>
+
         <div className="booth-right">
           <p className="booth-brand">foretransit</p>
           <p className="booth-date">{displayDate}</p>
           <p className="booth-weekday">{displayWeekday}</p>
         </div>
-      </header>
-
-      <p className="forecast-time">{displayTime}</p>
+      </div>
 
       <section className="search-panel" ref={searchRef}>
         <input
@@ -1269,26 +1152,14 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
 function App() {
   const [view, setView] = useState('map')
   const [selectedStop, setSelectedStop] = useState(null)
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      return window.localStorage.getItem('foretransit-theme') === 'dark'
-    } catch {
-      return false
-    }
-  })
 
   useEffect(() => {
     document.title = view === 'forecast' ? 'ForeTransit | Forecast Interface' : 'ForeTransit | Map Interface'
   }, [view])
 
   useEffect(() => {
-    document.body.classList.toggle('theme-dark', darkMode)
-    try {
-      window.localStorage.setItem('foretransit-theme', darkMode ? 'dark' : 'light')
-    } catch {
-      // Ignore storage write issues and keep in-memory theme state.
-    }
-  }, [darkMode])
+    document.body.classList.remove('theme-dark')
+  }, [])
 
   if (view === 'forecast') {
     return <ForecastDashboard selectedStop={selectedStop} onBackToMap={() => setView('map')} />
@@ -1299,8 +1170,6 @@ function App() {
       selectedStop={selectedStop}
       onSelectStop={setSelectedStop}
       onEnterForecast={() => setView('forecast')}
-      darkMode={darkMode}
-      onToggleDarkMode={() => setDarkMode((prev) => !prev)}
     />
   )
 }
