@@ -1,0 +1,6 @@
+data/raw/gtfs_realtime/
+data/raw/weather/
+data/processed/
+notebooks/
+outputs/
+frontend/
