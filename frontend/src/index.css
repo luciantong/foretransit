@@ -1,16 +1,22 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap');
 
 :root {
   --ink-strong: #0f172a;
   --ink-muted: #475569;
-  --bg-main: #fdfbd4;
-  --bg-accent: #fdfbd4;
-  --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --bg-main: #e5d9a9;
+  --bg-accent: #e5d9a9;
+  --font-body: 'Nunito', 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'IBM Plex Mono', Consolas, monospace;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  background: #e5d9a9;
 }
 
 body {
@@ -19,7 +25,18 @@ body {
   font-family: var(--font-body);
   font-weight: 700;
   color: var(--ink-strong);
-  background: #fdfbd4;
+  background: #e5d9a9;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
 }
 
 body.theme-dark {

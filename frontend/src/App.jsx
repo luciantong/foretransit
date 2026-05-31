@@ -129,15 +129,15 @@ function zoomRevealOpacity(zoom) {
 
 function colorByScore(score) {
   if (typeof score !== 'number' || !Number.isFinite(score)) {
-    return '#0f172a'
+    return '#000000'
   }
-  if (score <= 50) {
-    return '#dc2626'
+  if (score < 50) {
+    return '#cc0000'
   }
-  if (score <= 74) {
-    return '#eab308'
+  if (score < 90) {
+    return '#cca300'
   }
-  return '#16a34a'
+  return '#1a573c'
 }
 
 function colorByBikeAvailability(bikesAvailable) {
@@ -170,12 +170,12 @@ function factorValueLabel(factor) {
   if (typeof factor?.factor === 'string' && factor.factor.trim()) {
     return factor.factor
   }
-  return 'n/a'
+  return 'loading'
 }
 
 function confidenceLabel(score) {
   if (typeof score !== 'number' || !Number.isFinite(score)) {
-    return 'Confidence: n/a'
+    return 'Confidence: loading'
   }
   if (score >= 70) {
     return 'Confidence: High'
@@ -184,6 +184,82 @@ function confidenceLabel(score) {
     return 'Confidence: Medium'
   }
   return 'Confidence: Low'
+}
+
+function compactConfidence(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) {
+    return 'loading'
+  }
+  if (score >= 70) {
+    return 'HIGH'
+  }
+  if (score >= 45) {
+    return 'MED'
+  }
+  return 'LOW'
+}
+
+function factorRowTitle(factor) {
+  const raw = String(factor?.factor || '').toLowerCase()
+  if (raw.includes('boarding') || raw.includes('dwell') || raw.includes('delay')) {
+    return 'BOARDING DELAYS'
+  }
+  if (raw.includes('traffic') || raw.includes('leg')) {
+    return 'TRAFFIC CONGESTION'
+  }
+  if (raw.includes('route') || raw.includes('stops') || raw.includes('gap') || raw.includes('section')) {
+    return 'ROUTE SEGMENT'
+  }
+  return raw ? raw.toUpperCase() : 'LIVE FACTOR'
+}
+
+function factorBadgeLabel(factor) {
+  const value = factorValueLabel(factor).toLowerCase()
+  if (value === 'no delay' || value === 'on schedule') {
+    return 'no delays'
+  }
+  if (value === 'slight delay' || value === 'short wait') {
+    return 'minor delays'
+  }
+  if (value === 'moderate delay' || value === 'long wait') {
+    return 'moderate'
+  }
+  if (value === 'heavy delay') {
+    return 'major delays'
+  }
+  if (value === 'few stops' || value === 'several stops' || value === 'many stops') {
+    return value
+  }
+  return value || 'loading'
+}
+
+function serviceStatusFromScore(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) {
+    return 'Unknown'
+  }
+  if (score >= 90) {
+    return 'Optimized'
+  }
+  if (score >= 70) {
+    return 'Stable'
+  }
+  if (score >= 50) {
+    return 'Watch'
+  }
+  return 'Disrupted'
+}
+
+function adviceFromScore(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) {
+    return 'loading.'
+  }
+  if (score >= 90) {
+    return 'Service is running on time. No need to rush.'
+  }
+  if (score >= 50) {
+    return 'Minor traffic detected. You might have a 5-minute wait.'
+  }
+  return 'Major delays. Check for a nearby subway or ride-share.'
 }
 
 function transitTagLabel(mode) {
@@ -210,39 +286,34 @@ function buildModelConsideration(inputKey, inputValue) {
   switch (inputKey) {
     case 'delay_seconds': {
       const delay = Number(inputValue || 0)
-      const displayValue = `${Math.round(delay / 60)} min`
-      if (delay < 60) return { factor: 'Delay', display_value: displayValue, ...scoreBand(86) }
-      if (delay < 180) return { factor: 'Delay', display_value: displayValue, ...scoreBand(62) }
-      if (delay < 300) return { factor: 'Delay', display_value: displayValue, ...scoreBand(42) }
-      return { factor: 'Delay', display_value: displayValue, ...scoreBand(24) }
+      if (delay < 60) return { factor: 'No current boarding delays', display_value: 'No delay', ...scoreBand(86) }
+      if (delay < 180) return { factor: 'Minor boarding slowdown detected', display_value: 'Slight delay', ...scoreBand(62) }
+      if (delay < 300) return { factor: 'Boarding delays are building', display_value: 'Moderate delay', ...scoreBand(42) }
+      return { factor: 'Major boarding delays right now', display_value: 'Heavy delay', ...scoreBand(24) }
     }
     case 'gap_seconds': {
       const gap = Number(inputValue || 0)
-      const displayValue = `${Math.round(gap / 60)} min`
-      if (gap <= 120) return { factor: 'Headway gap', display_value: displayValue, ...scoreBand(82) }
-      if (gap <= 420) return { factor: 'Headway gap', display_value: displayValue, ...scoreBand(58) }
-      return { factor: 'Headway gap', display_value: displayValue, ...scoreBand(34) }
+      if (gap <= 120) return { factor: 'Vehicles are arriving consistently', display_value: 'On schedule', ...scoreBand(82) }
+      if (gap <= 420) return { factor: 'Small spacing gaps between vehicles', display_value: 'Short wait', ...scoreBand(58) }
+      return { factor: 'Long wait gap between vehicles', display_value: 'Long wait', ...scoreBand(34) }
     }
     case 'cumulative_dwell_time': {
       const dwell = Number(inputValue || 0)
-      const displayValue = `${dwell.toFixed(1)} min`
-      if (dwell <= 2) return { factor: 'Cumulative dwell time', display_value: displayValue, ...scoreBand(80) }
-      if (dwell <= 5) return { factor: 'Cumulative dwell time', display_value: displayValue, ...scoreBand(56) }
-      return { factor: 'Cumulative dwell time', display_value: displayValue, ...scoreBand(32) }
+      if (dwell <= 2) return { factor: 'No current boarding delays', display_value: 'No delay', ...scoreBand(80) }
+      if (dwell <= 5) return { factor: 'Boarding is a bit slower than normal', display_value: 'Slight delay', ...scoreBand(56) }
+      return { factor: 'Heavy boarding delays at stops', display_value: 'Heavy delay', ...scoreBand(32) }
     }
     case 'cumulative_leg_time': {
       const leg = Number(inputValue || 0)
-      const displayValue = `${leg.toFixed(1)} min`
-      if (leg <= 2) return { factor: 'Cumulative leg time', display_value: displayValue, ...scoreBand(78) }
-      if (leg <= 5) return { factor: 'Cumulative leg time', display_value: displayValue, ...scoreBand(55) }
-      return { factor: 'Cumulative leg time', display_value: displayValue, ...scoreBand(36) }
+      if (leg <= 2) return { factor: 'Traffic is moving smoothly', display_value: 'No delay', ...scoreBand(78) }
+      if (leg <= 5) return { factor: 'Traffic detected on route', display_value: 'Slight delay', ...scoreBand(55) }
+      return { factor: 'Heavy traffic along the route', display_value: 'Heavy delay', ...scoreBand(36) }
     }
     case 'cumulative_stops': {
       const stops = Number(inputValue || 0)
-      const displayValue = `${Math.round(stops)} stops`
-      if (stops <= 5) return { factor: 'Stops traversed', display_value: displayValue, ...scoreBand(80) }
-      if (stops <= 12) return { factor: 'Stops traversed', display_value: displayValue, ...scoreBand(56) }
-      return { factor: 'Stops traversed', display_value: displayValue, ...scoreBand(35) }
+      if (stops <= 5) return { factor: 'Short route segment ahead', display_value: 'Few stops', ...scoreBand(80) }
+      if (stops <= 12) return { factor: 'Moderate number of stops ahead', display_value: 'Several stops', ...scoreBand(56) }
+      return { factor: 'Many stops ahead may add delay', display_value: 'Many stops', ...scoreBand(35) }
     }
     case 'hour_of_day': {
       const hour = Number(inputValue || 0)
@@ -1033,42 +1104,41 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
   const fallbackFactors = Array.isArray(forecast.data?.top_factors) ? forecast.data.top_factors : []
   const factors = modelDrivenFactors.length > 0 ? modelDrivenFactors : fallbackFactors
   const usingModelFactors = modelDrivenFactors.length > 0
-  const scoreHeading = 'Predicted standardized score'
+  const scoreHeading = 'Reliability Score'
   const displayScore = typeof winnerScore === 'number' ? Math.round(winnerScore) : '--'
-  const displayTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  const displayDate = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+  const scoreColor = colorByScore(winnerScore)
+  const serviceStatus = magi?.service_status || serviceStatusFromScore(winnerScore)
+  const nextArrival = forecast.data?.current?.estimated_arrival || 'loading'
+  const nextArrivalMins = forecast.data?.current?.estimated_arrival_in_min
+  const etaSuffix = typeof nextArrivalMins === 'number' ? ` (${nextArrivalMins} min)` : ''
+  const adviceText = magi?.advice_text || adviceFromScore(winnerScore)
+  const displayTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  const displayDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, ' / ')
+  const displayWeekday = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase().split('').join(' ')
   const liveTemp = liveWeather.data?.temperature_c
   const liveRain = liveWeather.data?.rain_mm
   const liveWind = liveWeather.data?.wind_kmh
+  const liveTempF = typeof liveTemp === 'number' ? Math.round((liveTemp * 9) / 5 + 32) : null
+  const liveWindMph = typeof liveWind === 'number' ? Math.round(liveWind * 0.621371) : null
+  const nextVehicleLine = typeof nextArrivalMins === 'number' ? `${nextArrivalMins} MINUTES` : String(nextArrival || 'loading').toUpperCase()
 
   return (
     <main className="minimal-shell">
       <header className="info-booth" aria-live="polite">
         <div className="booth-left">
           <button type="button" className="back-map-btn" onClick={backToMap}>
-            Back to map
+            {'<<< back to map'}
           </button>
         </div>
 
-        <div className="booth-center">
-          <p className="booth-label">Weather</p>
-          {liveWeather.loading ? <p className="booth-value">Updating weather...</p> : null}
-          {liveWeather.error ? <p className="booth-value error">{liveWeather.error}</p> : null}
-          {!liveWeather.loading && !liveWeather.error ? (
-            <p className="booth-value">
-              Temp {typeof liveTemp === 'number' ? `${Math.round(liveTemp)} C` : 'N/A'}
-              {' · '}Rain {typeof liveRain === 'number' ? `${liveRain} mm` : 'N/A'}
-              {' · '}Wind {typeof liveWind === 'number' ? `${liveWind} km/h` : 'N/A'}
-            </p>
-          ) : null}
-        </div>
-
         <div className="booth-right">
-          <p className="booth-label">Time</p>
-          <p className="booth-time">{displayTime}</p>
+          <p className="booth-brand">foretransit</p>
           <p className="booth-date">{displayDate}</p>
+          <p className="booth-weekday">{displayWeekday}</p>
         </div>
       </header>
+
+      <p className="forecast-time">{displayTime}</p>
 
       <section className="search-panel" ref={searchRef}>
         <input
@@ -1081,7 +1151,7 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
             setDropdownOpen(!!next.trim())
           }}
           onFocus={() => setDropdownOpen(!!query.trim())}
-          placeholder="Search station names"
+          placeholder=">>> search station names"
         />
 
         {dropdownOpen && query.trim() ? (
@@ -1107,43 +1177,86 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
       </section>
 
       <section className="result-panel">
-        {forecast.loading ? <p>Loading model selection...</p> : null}
         {forecast.error ? <p className="search-error">{forecast.error}</p> : null}
 
         <div className="weather-widget">
-          <div className="widget-left">
-            <p className="widget-station">{scoreHeading}</p>
-            <div className="widget-score-row">
-              <p className="widget-score">{displayScore}</p>
-              <span className="widget-score-max">/100</span>
+          <div className="widget-top-row">
+            <div className="widget-left">
+              <div className="widget-score-col">
+                <p className="widget-station">transit reliability...</p>
+                <div className="widget-score-row">
+                  <p className="widget-score" style={{ backgroundColor: scoreColor }}>{displayScore}</p>
+                </div>
+                <p className="widget-service-tag">{String(serviceStatus || 'Unknown').toUpperCase()}</p>
+                <p className="widget-advice-line">&quot;{String(adviceText || 'loading.').toLowerCase()}&quot;</p>
+              </div>
+
+              <div className="widget-meta-col">
+                <div className="widget-meta-group">
+                  <p className="widget-meta-label">confidence...</p>
+                  <p className="widget-meta-value">{compactConfidence(winnerScore)}</p>
+                </div>
+                <div className="widget-meta-group">
+                  <p className="widget-meta-label">service status...</p>
+                  <p className="widget-meta-value">{String(serviceStatus || 'Unknown').toUpperCase()}</p>
+                </div>
+                <div className="widget-meta-group">
+                  <p className="widget-meta-label">next vehicle (est. arrival)</p>
+                  <p className="widget-meta-value">{nextVehicleLine}</p>
+                </div>
+              </div>
+
+              <div className="score-band-legend" aria-hidden="true">
+                <span><i className="legend-dot legend-dot--bad" />0-49</span>
+                <span><i className="legend-dot legend-dot--warn" />50-89</span>
+                <span><i className="legend-dot legend-dot--good" />90-100</span>
+              </div>
             </div>
-            <p className="widget-model-line">
-              Model selected: {formatModelName(magi?.model_used)}
-            </p>
-            <p className="widget-confidence-line">{confidenceLabel(winnerScore)}</p>
+
+            <div className="widget-summary-box">
+              <p className="widget-summary-title">temperature</p>
+              <p className="widget-arrival">
+                {typeof liveTemp === 'number' ? `${Math.round(liveTemp)}°C` : 'loading'}
+                {' // '}
+                {typeof liveTempF === 'number' ? `${liveTempF}°F` : 'loading'}
+              </p>
+
+              <p className="widget-summary-title">rain...</p>
+              <p className="widget-arrival">{typeof liveRain === 'number' ? `${liveRain}mm` : 'loading'}</p>
+
+              <p className="widget-summary-title">wind...</p>
+              <p className="widget-arrival">
+                {typeof liveWind === 'number' ? `${liveWind} kmh` : 'loading'}
+                {' // '}
+                {typeof liveWindMph === 'number' ? `${liveWindMph} mph` : 'loading'}
+              </p>
+            </div>
           </div>
 
           <div className="widget-right">
-            <p className="widget-title">Confounding Factors</p>
-            <p className="widget-subtitle">
-              {usingModelFactors
-                ? `Rated from ${formatModelName(magi?.model_used)} model inputs`
-                : 'Rated from system-level confounding factors'}
-            </p>
+            <p className="widget-title">live trip status...</p>
             {factors.length > 0 ? (
               <ul className="factor-list">
-                {factors.slice(0, 3).map((factor, idx) => (
-                  <li key={`${factor.factor}-${idx}`} className={`factor-item ${factorToneClass(factor)}`}>
-                    <span className="factor-text">{factor.factor}</span>
-                    <span className="factor-score">{factorValueLabel(factor)}</span>
-                  </li>
-                ))}
+                {factors.slice(0, 3).map((factor, idx) => {
+                  const rowTitle = factorRowTitle(factor)
+                  const rowBadge = factorBadgeLabel(factor)
+                  return (
+                    <li key={`${factor.factor}-${idx}`} className={`factor-item ${factorToneClass(factor)}`}>
+                      <span className={`factor-text${rowTitle === 'BOARDING DELAYS' ? ' factor-text--boarding' : ''}`}>
+                        {rowTitle}
+                      </span>
+                      <span className={`factor-score${rowBadge === 'no delays' ? ' factor-score--no-delays' : ''}`}>
+                        {rowBadge}
+                      </span>
+                    </li>
+                  )
+                })}
               </ul>
             ) : (
               <p className="widget-empty">
                 {forecast.loading
-                  ? 'Loading confounding factors...'
-                  : 'No significant confounding factors detected right now.'}
+                  ? 'Loading live trip status...'
+                  : 'No significant live impacts detected right now.'}
               </p>
             )}
           </div>

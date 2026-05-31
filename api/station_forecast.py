@@ -247,6 +247,24 @@ def blend_prediction_score(raw_predicted, num_vehicles, mode="bus"):
     blended = (raw_predicted * weight) + (fallback_score * (1.0 - weight))
     return int(max(0, min(100, round(blended))))
 
+
+def _next_arrival_snapshot(all_delays, now):
+    scheduled = [d.get("scheduled_time") for d in all_delays if d.get("scheduled_time") is not None]
+    if not scheduled:
+        return {
+            "estimated_arrival": "Not available",
+            "estimated_arrival_in_min": None,
+        }
+
+    upcoming = [t for t in scheduled if (t - now).total_seconds() >= -60]
+    next_time = min(upcoming) if upcoming else min(scheduled)
+    minutes = max(0, int(round((next_time - now).total_seconds() / 60.0)))
+
+    return {
+        "estimated_arrival": next_time.strftime("%I:%M %p").lstrip("0"),
+        "estimated_arrival_in_min": minutes,
+    }
+
 # ─── Main: Get Station Forecast ──────────────
 def get_station_forecast(stop_id):
     if stops_df is None:
@@ -450,6 +468,7 @@ def get_station_forecast(stop_id):
     global_standardized_score = blend_prediction_score(
         overall_magi["selection_context"]["winner_score_100"],
         len(all_delays), mode=dominant_mode)
+    arrival_snapshot = _next_arrival_snapshot(all_delays, now)
 
     bikeshare = get_nearby_bikeshare(stop_lat, stop_lon)
 
@@ -466,7 +485,9 @@ def get_station_forecast(stop_id):
             "predicted":     global_standardized_score,
             "delay_min":     round(overall_avg_delay / 60, 1),
             "num_vehicles":  len(all_delays),
-            "dominant_mode": dominant_mode
+            "dominant_mode": dominant_mode,
+            "estimated_arrival": arrival_snapshot["estimated_arrival"],
+            "estimated_arrival_in_min": arrival_snapshot["estimated_arrival_in_min"],
         },
 
         "by_mode":   magi_by_mode,

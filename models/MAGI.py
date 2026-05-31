@@ -83,6 +83,22 @@ def _feature_subset(features, keys):
     return {key: features.get(key) for key in keys}
 
 
+def _service_status_from_score(score_100):
+    if score_100 >= 90:
+        return "On time"
+    if score_100 >= 50:
+        return "Minor delays"
+    return "Major delays"
+
+
+def _advice_text_from_score(score_100):
+    if score_100 >= 90:
+        return "Service is running on time. No need to rush."
+    if score_100 >= 50:
+        return "Minor traffic detected. You might have a 5-minute wait."
+    return "Major delays. Check for a nearby subway or ride-share."
+
+
 # --- MAGI ---
 def run_magi(features, actual_severity=None):
     """
@@ -167,6 +183,7 @@ def run_magi(features, actual_severity=None):
 
     # -- No models ran --
     if not results:
+        fallback_score = 0.0
         return {
             "model_used": None,
             "predicted":  0,
@@ -176,8 +193,10 @@ def run_magi(features, actual_severity=None):
             "selection_context": {
                 "strategy":         "none_available",
                 "skipped_models":   skipped_models,
-                "winner_score_100": 0.0,
+                "winner_score_100": fallback_score,
             },
+            "service_status": _service_status_from_score(fallback_score),
+            "advice_text":    _advice_text_from_score(fallback_score),
             "model_info": {
                 "winner":    None,
                 "method":    "MAGI - Multi-Answer Geographical Informations",
@@ -228,6 +247,7 @@ def run_magi(features, actual_severity=None):
     # -- Build Final Output --
     winning_result = results[winner]
     severity       = winning_result["predicted"]
+    winner_score   = results[winner].get("score_100", 0.0)
 
     return {
         "model_used": winner,
@@ -238,8 +258,10 @@ def run_magi(features, actual_severity=None):
         "selection_context": {
             "strategy":         strategy,
             "skipped_models":   skipped_models,
-            "winner_score_100": results[winner].get("score_100", 0.0),
+            "winner_score_100": winner_score,
         },
+        "service_status": _service_status_from_score(winner_score),
+        "advice_text":    _advice_text_from_score(winner_score),
         "model_info": {
             "winner":    winner,
             "method":    "MAGI - Multi-Answer Geographical Informations",
