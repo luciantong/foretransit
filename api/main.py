@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi import APIRouter
 from api.station_forecast import get_station_forecast, get_current_weather
 import pandas as pd
 import requests
+import os
 
 app = FastAPI(title="ForéTransit API")
 
@@ -13,10 +17,12 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+api = APIRouter(prefix="/api")
+
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 stops_df  = pd.read_csv(f"{GTFS_PATH}/stops.txt")
 
-@app.get("/vehicles/live")
+@api.get("/vehicles/live")
 def live_vehicles():
     try:
         response = requests.get(
@@ -28,12 +34,12 @@ def live_vehicles():
         return {"error": str(e)}
 
 # ─── Health Check ─────────────────────────────
-@app.get("/")
+@api.get("/health")
 def root():
     return {"status": "ForéTransit API is running"}
 
 # ─── All Stops ────────────────────────────────
-@app.get("/stops")
+@api.get("/stops")
 def get_stops(limit: int = 5000):
     df = stops_df.head(limit)
     stops = df.rename(columns={
@@ -46,7 +52,7 @@ def get_stops(limit: int = 5000):
     return {"stops": stops.to_dict(orient="records")}
 
 # ─── Stop Search ──────────────────────────────
-@app.get("/stops/search")
+@api.get("/stops/search")
 def search_stops(q: str = "", limit: int = 8):
     if not q.strip():
         return {"stops": []}
@@ -60,12 +66,12 @@ def search_stops(q: str = "", limit: int = 8):
     return {"stops": stops.to_dict(orient="records")}
 
 # ─── Station Forecast ─────────────────────────
-@app.get("/station/{stop_id}")
+@api.get("/station/{stop_id}")
 def station_forecast(stop_id: str):
     return get_station_forecast(stop_id)
 
 # ─── Weather ──────────────────────────────────
-@app.get("/weather/current")
+@api.get("/weather/current")
 def weather_current():
     w = get_current_weather()
     return {
@@ -77,7 +83,7 @@ def weather_current():
     }
 
 # ─── Bike Share ───────────────────────────────
-@app.get("/bikeshare/stations")
+@api.get("/bikeshare/stations")
 def bikeshare_stations(limit: int = 5000):
     try:
         GBFS_INFO   = "https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_information"
@@ -108,7 +114,7 @@ def bikeshare_stations(limit: int = 5000):
     except Exception as e:
         return {"stations": [], "error": str(e)}
     
-@app.get("/debug/station/{stop_id}")
+@api.get("/debug/station/{stop_id}")
 def debug_station(stop_id: str):
     import requests, math
     
@@ -144,3 +150,15 @@ def debug_station(stop_id: str):
             for v in vehicles
         ], key=lambda x: x["dist"])[:5]
     }
+
+# ─── Register API router ───────────────────────────────────────────────────
+app.include_router(api)
+
+# ─── Serve built frontend (production) ────────────────────────────────────
+_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.isdir(_frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str):
+        return FileResponse(os.path.join(_frontend_dist, "index.html"))
