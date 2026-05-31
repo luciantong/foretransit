@@ -52,18 +52,10 @@ ALL_FEATURES = TIER_1 + TIER_2 + TIER_3
 
 # ─── Load or Create Model ────────────────────
 def load_model(mode="bus"):
-    """
-    Load pre-trained model if exists
-    Otherwise return untrained model
-    Separate model per mode: bus, streetcar, subway
-    """
     path = f"models/saved/{mode}_xgb.pkl"
-
     if os.path.exists(path):
         with open(path, "rb") as f:
             return pickle.load(f)
-
-    # Return fresh untrained model
     return XGBClassifier(
         n_estimators     = 300,
         max_depth        = 6,
@@ -85,44 +77,43 @@ def xgboost_predict(features, mode="bus"):
 
     try:
         model = load_model(mode)
-        
-        # 1. Build a full-tier dictionary using robust fallback values
-        # This guarantees every column across Tier 1, 2, and 3 is filled cleanly.
+
+        # Build full-tier dictionary with smart fallback values
         aligned_features = {}
         for key in ALL_FEATURES:
-            # Smart default fallbacks depending on feature types
             if "mm" in key or "speed" in key or "time" in key or "rate" in key or "trend" in key or "avg" in key:
                 default_val = 0.0
             elif "is_" in key:
-                default_val = 0      # Boolean indicator
+                default_val = 0
             elif "hour" in key:
-                default_val = 12     # Mid-day neutral hour
+                default_val = 12
             elif "visibility" in key:
-                default_val = 10.0   # Clear visibility default
+                default_val = 10.0
             elif "temperature" in key:
-                default_val = 15.0   # Neutral baseline temperature
+                default_val = 15.0
             else:
                 default_val = 0
-                
+
             aligned_features[key] = features.get(key, default_val)
 
-        # 2. Build explicit single-row Pandas DataFrame matching column order exactly
+        # Build single-row DataFrame matching column order exactly
         X = pd.DataFrame([aligned_features], columns=ALL_FEATURES)
 
-        # 3. Check if the model is fitted. 
-        # If it's a freshly instantiated untrained model, predict_proba will fail.
+        # Run inference
         try:
-            probs = model.predict_proba(X)[0]
+            probs        = model.predict_proba(X)[0]
+            predicted    = int(np.argmax(probs))
+            inference_ok = True
         except Exception:
-            # Safe mock fallback distribution matching an optimized system state
-            # until your model is actively trained and pickled on Toronto's dataset
-            probs = [0.70, 0.15, 0.10, 0.05] 
-
-        predicted = int(np.argmax(probs))
+            # Uniform distribution — no false confidence when model fails
+            probs        = [0.25, 0.25, 0.25, 0.25]
+            predicted    = 0
+            inference_ok = False
 
         return {
-            "model": "xgboost",
-            "predicted": predicted,
+            "model":         "xgboost",
+            "predicted":     predicted,
+            "inference_ok":  inference_ok,
             "probabilities": {
                 "on_time":  round(float(probs[0]), 4),
                 "minor":    round(float(probs[1]), 4),
@@ -131,7 +122,7 @@ def xgboost_predict(features, mode="bus"):
             }
         }
     except Exception as e:
-        print(f"❌ XGBoost Prediction Failure: {str(e)}")
+        print(f"XGBoost Prediction Failure: {str(e)}")
         return None
 
 def calc_log_loss(predicted_probs, actual):

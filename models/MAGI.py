@@ -233,7 +233,7 @@ def run_magi(features, actual_severity=None):
         if "jayden" in results and delay_seconds > 30:
             winner   = "jayden"
             strategy = "jayden_priority_delay_signal"
-        elif "xgboost" in results:
+        elif "xgboost" in results and results["xgboost"].get("inference_ok", True):
             winner   = "xgboost"
             strategy = "xgboost_priority_schedule_features"
         else:
