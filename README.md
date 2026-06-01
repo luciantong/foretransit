@@ -1293,14 +1293,19 @@ ax2.text(
 
 plt.tight_layout()
 plt.savefig(
-    "transit_xgboost_overfitting.png",
+    "images/transit_xgboost_overfitting.png",
     dpi         = 150,
     bbox_inches = "tight",
     facecolor   = DARK_BG,
 )
 plt.show()
-print("\nFigure saved → transit_xgboost_overfitting.png")
+print("\nFigure saved → images/transit_xgboost_overfitting.png")
 ```
+
+### Generated Chart
+
+![Severe XGBoost Overfitting — Urban Bus Delay Prediction](https://raw.githubusercontent.com/luciantong/foretransit/main/images/transit_xgboost_overfitting.png)
+
 ---
 
 ## Academic references
