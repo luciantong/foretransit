@@ -40,13 +40,13 @@ Models are scored by log loss. The winner is used as the final prediction.
 
 ### TTC Bus Network Average Commercial Speed (2019–2026)
 
-![TTC Bus Average Speed 2019-2026](images/ttc_bus_average_speed.png)
+![TTC Bus Average Speed 2019-2026](https://raw.githubusercontent.com/luciantong/foretransit/main/images/ttc_bus_average_speed.png)
 
 The TTC bus network has experienced a steady decline in average commercial speed from 18.9 km/h in 2019 to 17.6 km/h in 2023. Projections indicate stabilization at 17.2 km/h through 2026 pending infrastructure improvements.
 
 ### Historical Decline & Recovery Target
 
-![TTC Speed Trend](images/ttc_speed_trend.png)
+![TTC Speed Trend](https://raw.githubusercontent.com/luciantong/foretransit/main/images/ttc_speed_trend.png)
 
 This chart shows the actual speed decline (red) and the projected recovery trajectory (orange dashed line) based on TTC Corporate Plan targets. The stabilization at 17.2 km/h reflects infrastructure initiatives aimed at addressing congestion.
 
