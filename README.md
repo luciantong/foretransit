@@ -642,6 +642,11 @@ plt.subplots_adjust(bottom=0.15)
 plt.show()
 
 ```
+
+### Generated Chart
+
+![Monthly TTC Subway Disruptions in 2025](https://raw.githubusercontent.com/luciantong/foretransit/main/images/ttc_subway_disruptions_2025.png)
+
 ---
 
 ## Top 10 TTC Streetcar Delay Routes since 2025
@@ -848,6 +853,11 @@ else:
         print(f"Records after dropping missing dates: {after_drop:,}")
         print(f"Records from 2025 onward used: {len(df_2025p):,}")
 ```
+
+### Generated Chart
+
+![Top 10 TTC Streetcar Delay Routes Since 2025](https://raw.githubusercontent.com/luciantong/foretransit/main/images/ttc_streetcar_top_10_delay_causes_since_2025.png)
+
 ---
 ## Severe XGBoost Overfitting - Urban Bus Delay Prediction (For illustrative purpose)
 
