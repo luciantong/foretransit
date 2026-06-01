@@ -3,7 +3,12 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 're
 import { divIcon } from 'leaflet'
 import './App.css'
 
-const API_ROOT = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
+const API_ROOT = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  (typeof __API_URL__ !== 'undefined' ? __API_URL__ : undefined) ||
+  '/api'
+).replace(/\/+$/, '')
 const MAP_RENDER_START_ZOOM = 14
 const MAP_RENDER_FADE_START_ZOOM = 12.0
 const MAP_RENDER_FADE_END_ZOOM = 14.4
@@ -37,7 +42,7 @@ async function fetchJson(path) {
     const preview = (await res.text()).slice(0, 120).replace(/\s+/g, ' ').trim()
     if (preview.startsWith('<')) {
       throw new Error(
-        `Backend returned HTML instead of JSON for ${path}. Start API on 127.0.0.1:8000 and use frontend dev server proxy, or set VITE_API_BASE_URL=http://127.0.0.1:8000.`,
+        `Backend returned HTML instead of JSON for ${path}. Start API on 127.0.0.1:8000 and use frontend dev server proxy, or set VITE_API_BASE_URL or VITE_API_URL to your backend URL.`,
       )
     }
     throw new Error(`Expected JSON response for ${path}, got content-type: ${contentType || 'unknown'}`)
