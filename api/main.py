@@ -21,6 +21,31 @@ api = APIRouter(prefix="/api")
 
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
 stops_df  = pd.read_csv(f"{GTFS_PATH}/stops.txt")
+METRO_STATIONS_CSV_PATH = "data/processed/toronto_subway_parent_stations_matched.csv"
+
+
+def load_metro_station_catalog() -> pd.DataFrame:
+    if not os.path.exists(METRO_STATIONS_CSV_PATH):
+        return pd.DataFrame(columns=["stop_id", "station_name", "lat", "lon", "line_numbers", "station_type"])
+
+    df = pd.read_csv(METRO_STATIONS_CSV_PATH, dtype=str).fillna("")
+    required = {"stop_id", "station_name", "lat", "lon"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame(columns=["stop_id", "station_name", "lat", "lon", "line_numbers", "station_type"])
+
+    df["stop_id"] = df["stop_id"].astype(str)
+    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
+    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
+    df = df.dropna(subset=["lat", "lon"])
+    return df.drop_duplicates(subset=["stop_id"]).copy()
+
+
+metro_catalog_df = load_metro_station_catalog()
+METRO_STOP_IDS = set(metro_catalog_df["stop_id"].astype(str).tolist())
+METRO_LINE_BY_STOP_ID = {
+    str(row["stop_id"]): str(row.get("line_numbers", ""))
+    for _, row in metro_catalog_df.iterrows()
+}
 
 
 def infer_stop_mode(stop_name: str) -> str:
@@ -57,7 +82,10 @@ def get_stops(limit: int = 12000):
         "stop_lat":  "lat",
         "stop_lon":  "lon"
     })[["stop_id", "stop_name", "lat", "lon"]].copy()
-    stops["mode"] = stops["stop_name"].apply(infer_stop_mode)
+    stops["stop_id"] = stops["stop_id"].astype(str)
+    stops["mode"] = stops["stop_id"].apply(lambda stop_id: "railway" if stop_id in METRO_STOP_IDS else "bus")
+    stops["is_parent_station"] = stops["stop_id"].isin(METRO_STOP_IDS)
+    stops["line_numbers"] = stops["stop_id"].map(METRO_LINE_BY_STOP_ID).fillna("")
     return {"stops": stops.to_dict(orient="records")}
 
 # ─── Stop Search ──────────────────────────────
@@ -71,7 +99,23 @@ def search_stops(q: str = "", limit: int = 8):
         "stop_lat": "lat",
         "stop_lon": "lon"
     })[["stop_id", "stop_name", "lat", "lon"]].copy()
-    stops["mode"] = stops["stop_name"].apply(infer_stop_mode)
+    stops["stop_id"] = stops["stop_id"].astype(str)
+    stops["mode"] = stops["stop_id"].apply(lambda stop_id: "railway" if stop_id in METRO_STOP_IDS else "bus")
+    stops["is_parent_station"] = stops["stop_id"].isin(METRO_STOP_IDS)
+    stops["line_numbers"] = stops["stop_id"].map(METRO_LINE_BY_STOP_ID).fillna("")
+    return {"stops": stops.to_dict(orient="records")}
+
+
+@api.get("/metro/stations")
+def get_metro_stations():
+    if metro_catalog_df.empty:
+        return {"stops": []}
+
+    stops = metro_catalog_df.rename(columns={
+        "station_name": "stop_name",
+    })[["stop_id", "stop_name", "lat", "lon", "line_numbers", "station_type"]].copy()
+    stops["mode"] = "railway"
+    stops["is_parent_station"] = True
     return {"stops": stops.to_dict(orient="records")}
 
 # ─── Station Forecast ─────────────────────────

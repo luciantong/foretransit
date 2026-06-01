@@ -1,0 +1,71 @@
+station_name,line_numbers,station_type,stop_id,lat,lon,match_status,commission_status
+Cedarvale Station,1,metro,14676,43.699447,-79.436493,matched,in_commission
+College Station,1,metro,13807,43.660149,-79.382688,matched,in_commission
+Davisville Station,1,metro,14646,43.697799,-79.397014,matched,in_commission
+Downsview Park Station,1,metro,15664,43.753311,-79.478693,matched,in_commission
+Dundas Station,1,metro,13809,43.657149,-79.381188,matched,in_commission
+Dupont Station,1,metro,13827,43.673749,-79.406689,matched,in_commission
+Eglinton Station,1,metro,14669,43.704582,-79.39846,matched,in_commission
+Finch Station,1,metro,14683,43.780942,-79.414829,matched,in_commission
+Finch West Station,1,metro,15565,43.765364,-79.490954,matched,in_commission
+Glencairn Station,1,metro,3665,43.709467,-79.441148,matched,in_commission
+Highway 407 Station,1,metro,15660,43.783359,-79.523454,matched,in_commission
+King Station,1,metro,13813,43.649649,-79.378088,matched,in_commission
+Lawrence Station,1,metro,14725,43.725556,-79.402351,matched,in_commission
+Lawrence West Station,1,metro,12202,43.715964,-79.444097,matched,in_commission
+Museum Station,1,metro,13825,43.667249,-79.393389,matched,in_commission
+North York Centre Station,1,metro,13789,43.767347,-79.412492,matched,in_commission
+Osgoode Station,1,metro,13819,43.650449,-79.386488,matched,in_commission
+Pioneer Village Station,1,metro,15571,43.776668,-79.508937,matched,in_commission
+Queen Station,1,metro,13811,43.652149,-79.379188,matched,in_commission
+Queen's Park Station,1,metro,13823,43.659249,-79.390289,matched,in_commission
+Rosedale Station,1,metro,14750,43.67684,-79.388875,matched,in_commission
+Sheppard West Station,1,metro,14651,43.749571,-79.462186,matched,in_commission
+St Andrew Station,1,metro,13817,43.648249,-79.385088,matched,in_commission
+St Clair Station,1,metro,14778,43.687857,-79.391958,matched,in_commission
+St Clair West Station,1,metro,14779,43.684231,-79.415227,matched,in_commission
+St Patrick Station,1,metro,13821,43.655249,-79.388388,matched,in_commission
+Summerhill Station,1,metro,13801,43.683349,-79.391189,matched,in_commission
+Union Station,1,metro,10935,43.645652,-79.37921,matched,in_commission
+Vaughan Metropolitan Centre Station,1,metro,15662,43.794021,-79.527906,matched,in_commission
+Wellesley Station,1,metro,14797,43.665358,-79.383941,matched,in_commission
+Wilson Station,1,metro,14799,43.734475,-79.45092,matched,in_commission
+York Mills Station,1,metro,14806,43.745172,-79.40593,matched,in_commission
+York University Station,1,metro,15666,43.774097,-79.499888,matched,in_commission
+Yorkdale Station,1,metro,13837,43.725248,-79.447692,matched,in_commission
+Bloor-Yonge Station,"1,2",metro,13755,43.671049,-79.386789,matched,in_commission
+Spadina Station,"1,2",metro,14777,43.667271,-79.403784,matched,in_commission
+St George Station,"1,2",metro,14784,43.668655,-79.398053,matched,in_commission
+Sheppard-Yonge Station,"1,4",metro,14771,43.761885,-79.412389,matched,in_commission
+Bathurst Station,2,metro,14617,43.666061,-79.411065,matched,in_commission
+Bay Station,2,metro,13757,43.670149,-79.390089,matched,in_commission
+Broadview Station,2,metro,14635,43.677011,-79.358044,matched,in_commission
+Castle Frank Station,2,metro,14641,43.673452,-79.369136,matched,in_commission
+Chester Station,2,metro,13747,43.678351,-79.352537,matched,in_commission
+Christie Station,2,metro,776,43.664124,-79.418567,matched,in_commission
+Coxwell Station,2,metro,14643,43.684079,-79.322919,matched,in_commission
+Donlands Station,2,metro,14649,43.680846,-79.33779,matched,in_commission
+Dufferin Station,2,metro,13765,43.660849,-79.43389,matched,in_commission
+Dundas West Station,2,metro,14662,43.656862,-79.453415,matched,in_commission
+Greenwood Station,2,metro,14694,43.682553,-79.330354,matched,in_commission
+High Park Station,2,metro,14695,43.65397,-79.466354,matched,in_commission
+Islington Station,2,metro,16045,43.644815,-79.524752,matched,in_commission
+Jane Station,2,metro,14700,43.649911,-79.484072,matched,in_commission
+Keele Station,2,metro,14704,43.65565,-79.459571,matched,in_commission
+Kennedy Station,2,metro,14708,43.732502,-79.263315,matched,in_commission
+Kipling Station,2,metro,14716,43.637209,-79.536117,matched,in_commission
+Lansdowne Station,2,metro,13767,43.659314,-79.442471,matched,in_commission
+Main Street Station,2,metro,14736,43.689037,-79.301926,matched,in_commission
+Old Mill Station,2,metro,14742,43.650156,-79.495072,matched,in_commission
+Ossington Station,2,metro,14743,43.662271,-79.426546,matched,in_commission
+Pape Station,2,metro,13745,43.679649,-79.345787,matched,in_commission
+Royal York Station,2,metro,14751,43.648338,-79.511178,matched,in_commission
+Runnymede Station,2,metro,14755,43.651732,-79.475954,matched,in_commission
+Sherbourne Station,2,metro,13753,43.672103,-79.376162,matched,in_commission
+Victoria Park Station,2,metro,14786,43.693982,-79.288461,matched,in_commission
+Warden Station,2,metro,16636,43.709817,-79.280007,matched,in_commission
+Woodbine Station,2,metro,14804,43.68644,-79.312471,matched,in_commission
+Bayview Station,4,metro,13843,43.766951,-79.38673,matched,in_commission
+Bessarion Station,4,metro,13845,43.769202,-79.376312,matched,in_commission
+Don Mills Station,4,metro,14623,43.776123,-79.346242,matched,in_commission
+Leslie Station,4,metro,14620,43.77041,-79.367644,matched,in_commission
