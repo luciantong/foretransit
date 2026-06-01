@@ -20,7 +20,13 @@ app.add_middleware(
 api = APIRouter(prefix="/api")
 
 GTFS_PATH = "data/raw/gtfs_static/TTC Routes and Schedules Data"
-stops_df  = pd.read_csv(f"{GTFS_PATH}/stops.txt")
+try:
+    stops_df = pd.read_csv(f"{GTFS_PATH}/stops.txt")
+except Exception as e:
+    import logging
+    logging.exception("Failed to load GTFS stops file; continuing with empty stops dataframe")
+    stops_df = pd.DataFrame(columns=["stop_id", "stop_name", "stop_lat", "stop_lon"])
+
 METRO_STATIONS_CSV_PATH = "data/processed/toronto_subway_parent_stations_matched.csv"
 
 
@@ -170,6 +176,8 @@ def bikeshare_stations(limit: int = 5000):
 @api.get("/debug/station/{stop_id}")
 def debug_station(stop_id: str):
     import requests, math
+    if stops_df.empty:
+        return {"error": "stops data not available on server"}
     
     def haversine(lat1,lon1,lat2,lon2):
         R=6371; dl=math.radians(lat2-lat1); dlo=math.radians(lon2-lon1)
