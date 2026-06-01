@@ -21,15 +21,9 @@ GTFS_ZIP_URL = "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/7795b45e
 import threading
 
 def _ensure_gtfs_static():
-    if not os.path.exists(f"{GTFS_PATH}/stop_times.txt"):
-        print("stop_times.txt not found — downloading in background...")
-        def download():
-            os.makedirs("data/raw/gtfs_static", exist_ok=True)
-            r = requests.get(GTFS_ZIP_URL, timeout=300)
-            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-                z.extractall("data/raw/gtfs_static/TTC Routes and Schedules Data")
-            print("GTFS static data downloaded and extracted.")
-        threading.Thread(target=download, daemon=True).start()
+    # In production (Railway), don't download GTFS at startup.
+    # Data should be pre-included or loaded on-demand.
+    pass
 
 _ensure_gtfs_static()
 
