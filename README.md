@@ -82,7 +82,19 @@ foretransit/
 
 ---
 
-## Setup
+## Try ForéTransit
+
+### 🚀 Live Demo
+
+**Visit the app now:** [ForéTransit on Vercel](https://foretransit.vercel.app)
+
+Click any subway or bus stop on the map to see real-time delay predictions powered by MAGI ensemble modeling.
+
+---
+
+## Local Development Setup (Optional)
+
+To run locally for development:
 
 ### 1. Clone the repo
 
@@ -124,37 +136,31 @@ mkdir -p data/raw/weather
 mkdir -p models/saved
 ```
 
-### 5. Fetch live data
+### 5. Start backend
 
 ```bash
-python pipeline/fetch_gtfs.py
+python -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 6. Train XGBoost models (one time only)
+### 6. Start frontend (in another terminal)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open http://localhost:5173
+
+### 5. Train XGBoost models (optional, one time only)
 
 ```bash
 python -m models.train_xgboost
 ```
 
-Saves `bus_xgb.pkl`, `streetcar_xgb.pkl`, `subway_xgb.pkl` to `models/saved/`. Only needs to be re-run if you want to retrain on new data.
+This saves trained models to `models/saved/`. Only needed if retraining on new data.
 
 ---
-
-## Running the server
-
-### Development
-
-```bash
-python pipeline/fetch_gtfs.py    # fetch fresh data first
-uvicorn api.main:app --reload --port 8000
-```
-
-### Production
-
-```bash
-uvicorn api.main:app --port 8000
-```
-
 Drop `--reload` in production — it's for development only and restarts the server on every file change.
 
 To keep data fresh in production, set a cron job to fetch every 60 seconds:
