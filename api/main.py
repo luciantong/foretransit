@@ -91,8 +91,8 @@ def get_stops(limit: int = 12000):
     stops["stop_id"] = stops["stop_id"].astype(str)
     stops["mode"] = stops["stop_id"].apply(lambda stop_id: "railway" if stop_id in METRO_STOP_IDS else "bus")
     stops["is_parent_station"] = stops["stop_id"].isin(METRO_STOP_IDS)
-    stops["line_numbers"] = stops["stop_id"].map(METRO_LINE_BY_STOP_ID).fillna("")
-    return {"stops": stops.to_dict(orient="records")}
+    stops["line_numbers"] = stops["stop_id"].map(METRO_LINE_BY_STOP_ID).fillna("")    # Sort: railway first, then bus
+    stops = stops.sort_values(by=["mode", "stop_name"], ascending=[False, True]).reset_index(drop=True)    return {"stops": stops.to_dict(orient="records")}
 
 # ─── Stop Search ──────────────────────────────
 @api.get("/stops/search")
