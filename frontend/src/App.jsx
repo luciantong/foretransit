@@ -4,10 +4,9 @@ import { divIcon } from 'leaflet'
 import './App.css'
 
 const API_ROOT = (
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
-  (typeof __API_URL__ !== 'undefined' ? __API_URL__ : undefined) ||
-  '/api'
+  import.meta.env.MODE === 'development'
+    ? import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api'
+    : import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || (typeof __API_URL__ !== 'undefined' ? __API_URL__ : '/api')
 ).replace(/\/+$/, '')
 const MAP_RENDER_START_ZOOM = 14
 const MAP_RENDER_FADE_START_ZOOM = 12.0
