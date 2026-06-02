@@ -2,6 +2,7 @@ import pandas as pd
 import json
 import os
 import math
+import re
 import requests
 import zipfile
 import io
@@ -263,6 +264,24 @@ def _next_arrival_snapshot(all_delays, now):
         "estimated_arrival_in_min": minutes,
     }
 
+
+def _infer_direction_id(route_trips=None, vehicle=None):
+    # Prefer GTFS trip direction when available.
+    if route_trips is not None and not route_trips.empty and "direction_id" in route_trips.columns:
+        direction_series = pd.to_numeric(route_trips["direction_id"], errors="coerce").dropna()
+        direction_series = direction_series[direction_series.isin([0, 1])]
+        if not direction_series.empty:
+            return int(direction_series.mode().iloc[0])
+
+    # Fall back to NextBus dirTag patterns like "..._0_..." or "..._1_...".
+    dir_tag = str((vehicle or {}).get("dirTag", "")).strip()
+    if re.search(r"(?:^|[_-])0(?:[_-]|$)", dir_tag):
+        return 0
+    if re.search(r"(?:^|[_-])1(?:[_-]|$)", dir_tag):
+        return 1
+
+    return -1
+
 # ─── Main: Get Station Forecast ──────────────
 def get_station_forecast(stop_id):
     if stops_df is None:
@@ -308,7 +327,7 @@ def get_station_forecast(stop_id):
             if stop_times_df is None or trips_df is None:
                 delays_by_mode[mode].append({
                     "vehicle_id": vid, "route_id": route_tag,
-                    "direction_id": -1, "delay_seconds": 0,
+                    "direction_id": _infer_direction_id(vehicle=v), "delay_seconds": 0,
                     "speed_kmh": speed, "mode": mode, "scheduled_time": None,
                 })
                 continue
@@ -320,7 +339,7 @@ def get_station_forecast(stop_id):
             if route_trips.empty:
                 delays_by_mode[mode].append({
                     "vehicle_id": vid, "route_id": route_tag,
-                    "direction_id": -1, "delay_seconds": 0,
+                    "direction_id": _infer_direction_id(vehicle=v), "delay_seconds": 0,
                     "speed_kmh": speed, "mode": mode, "scheduled_time": None,
                 })
                 continue
@@ -359,7 +378,7 @@ def get_station_forecast(stop_id):
             if scheduled.empty:
                 delays_by_mode[mode].append({
                     "vehicle_id": vid, "route_id": route_tag,
-                    "direction_id": -1, "delay_seconds": 0,
+                    "direction_id": _infer_direction_id(route_trips=route_trips, vehicle=v), "delay_seconds": 0,
                     "speed_kmh": speed, "mode": mode, "scheduled_time": None,
                 })
                 continue

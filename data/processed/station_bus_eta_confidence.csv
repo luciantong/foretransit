@@ -1,0 +1,94 @@
+station_name,stop_name,stop_id,bus_route_number,bus_route_name,direction,estimated_arrival,estimated_arrival_in_min,prediction_score_100,prediction_confidence,forecast_generated_at
+Bathurst Station,Bathurst Station,14617,307,307 - Bathurst,Inbound,Not available,,68.0,medium,2026-06-01T05:12:47.871235
+Bathurst Station,Bathurst Station,14617,7,7 - Bathurst,Inbound,Not available,,68.0,medium,2026-06-01T05:12:47.871235
+Bathurst Station,Bathurst Station,14617,7,7 - Bathurst,Outbound,Not available,,68.0,medium,2026-06-01T05:12:47.871235
+Broadview Station,Broadview Station,14635,100,100 - Flemingdon Park,Inbound,Not available,,66.0,medium,2026-06-01T05:12:56.733633
+Broadview Station,Broadview Station,14635,100,100 - Flemingdon Park,Outbound,Not available,,66.0,medium,2026-06-01T05:12:56.733633
+Castle Frank Station,Castle Frank Station,14641,65,65 - Parliament,Inbound,Not available,,68.0,medium,2026-06-01T05:13:00.545926
+Castle Frank Station,Castle Frank Station,14641,65,65 - Parliament,Outbound,Not available,,68.0,medium,2026-06-01T05:13:00.545926
+Cedarvale Station,Cedarvale Station,14676,363,363 - Ossington,Inbound,Not available,,67.0,medium,2026-06-01T05:13:22.374692
+Cedarvale Station,Cedarvale Station,14676,363,363 - Ossington,Outbound,Not available,,67.0,medium,2026-06-01T05:13:22.374692
+Christie Station,Christie Station,776,126,126 - Christie,Inbound,Not available,,69.0,medium,2026-06-01T05:14:51.137122
+Christie Station,Christie Station,776,126,126 - Christie,Outbound,Not available,,69.0,medium,2026-06-01T05:14:51.137122
+Coxwell Station,Coxwell Station,14643,70,70 - O'Connor,Inbound,Not available,,29.0,low,2026-06-01T05:13:03.576094
+Coxwell Station,Coxwell Station,14643,70,70 - O'Connor,Outbound,Not available,,29.0,low,2026-06-01T05:13:03.576094
+Davisville Station,Davisville Station,14646,14,14 - Glencairn,Inbound,Not available,,66.0,medium,2026-06-01T05:13:06.846333
+Davisville Station,Davisville Station,14646,28,28 - Bayview South,Inbound,Not available,,66.0,medium,2026-06-01T05:13:06.846333
+Don Mills Station,Don Mills Station,14623,25,25 - Don Mills,Inbound,Not available,,76.0,high,2026-06-01T05:12:53.641723
+Don Mills Station,Don Mills Station,14623,25,25 - Don Mills,Outbound,Not available,,76.0,high,2026-06-01T05:12:53.641723
+Don Mills Station,Don Mills Station,14623,325,325 - Don Mills,Outbound,Not available,,76.0,high,2026-06-01T05:12:53.641723
+Donlands Station,Donlands Station,14649,51,51 - Leslie,Inbound,Not available,,68.0,medium,2026-06-01T05:13:10.109321
+Donlands Station,Donlands Station,14649,51,51 - Leslie,Outbound,Not available,,68.0,medium,2026-06-01T05:13:10.109321
+Dundas West Station,Dundas West Station,14662,168,168 - Symington,Inbound,Not available,,66.0,medium,2026-06-01T05:13:16.060076
+Dundas West Station,Dundas West Station,14662,168,168 - Symington,Outbound,Not available,,66.0,medium,2026-06-01T05:13:16.060076
+Eglinton Station,Eglinton Station,14669,97,97 - Yonge,Inbound,Not available,,65.0,medium,2026-06-01T05:13:19.409838
+Eglinton Station,Eglinton Station,14669,97,97 - Yonge,Outbound,Not available,,65.0,medium,2026-06-01T05:13:19.409838
+Finch Station,Finch Station,14683,953,953 - Steeles East Express,Inbound,Not available,,66.0,medium,2026-06-01T05:13:25.394553
+Finch Station,Finch Station,14683,953,953 - Steeles East Express,Outbound,Not available,,66.0,medium,2026-06-01T05:13:25.394553
+Finch West Station,Finch West Station,15565,101,101 - Downsview Park,Inbound,Not available,,67.0,medium,2026-06-01T05:14:34.976129
+Finch West Station,Finch West Station,15565,101,101 - Downsview Park,Outbound,Not available,,67.0,medium,2026-06-01T05:14:34.976129
+Finch West Station,Finch West Station,15565,336,336 - Finch West,Inbound,Not available,,67.0,medium,2026-06-01T05:14:34.976129
+Glencairn Station,Glencairn Station,3665,14,14 - Glencairn,Outbound,Not available,,76.0,high,2026-06-01T05:14:48.344137
+Greenwood Station,Greenwood Station,14694,31,31 - Greenwood,Inbound,Not available,,69.0,medium,2026-06-01T05:13:28.405716
+Greenwood Station,Greenwood Station,14694,31,31 - Greenwood,Outbound,Not available,,69.0,medium,2026-06-01T05:13:28.405716
+High Park Station,High Park Station,14695,30,30 - High Park North,Inbound,Not available,,76.0,high,2026-06-01T05:13:31.569564
+High Park Station,High Park Station,14695,30,30 - High Park North,Outbound,Not available,,76.0,high,2026-06-01T05:13:31.569564
+Islington Station,Islington Station,16045,110,110 - Islington South,Inbound,Not available,,69.0,medium,2026-06-01T05:14:42.100821
+Islington Station,Islington Station,16045,110,110 - Islington South,Outbound,Not available,,69.0,medium,2026-06-01T05:14:42.100821
+Jane Station,Jane Station,14700,149,149 - Etobicoke-Bloor,Inbound,Not available,,91.0,high,2026-06-01T05:13:34.249486
+Jane Station,Jane Station,14700,149,149 - Etobicoke-Bloor,Outbound,Not available,,91.0,high,2026-06-01T05:13:34.249486
+Jane Station,Jane Station,14700,55,55 - Warren Park,Inbound,Not available,,91.0,high,2026-06-01T05:13:34.249486
+Jane Station,Jane Station,14700,55,55 - Warren Park,Outbound,Not available,,91.0,high,2026-06-01T05:13:34.249486
+Keele Station,Keele Station,14704,80,80 - Queensway,Inbound,Not available,,67.0,medium,2026-06-01T05:13:37.200113
+Keele Station,Keele Station,14704,80,80 - Queensway,Outbound,Not available,,67.0,medium,2026-06-01T05:13:37.200113
+Kennedy Station,Kennedy Station - Platform A,14708,34,34 - Eglinton,Inbound,Not available,,66.0,medium,2026-06-01T05:13:40.275989
+Kennedy Station,Kennedy Station - Platform A,14708,34,34 - Eglinton,Outbound,Not available,,66.0,medium,2026-06-01T05:13:40.275989
+Kipling Station,Kipling Station,14716,111,111 - East Mall,Inbound,Not available,,68.0,medium,2026-06-01T05:13:43.645608
+Kipling Station,Kipling Station,14716,111,111 - East Mall,Outbound,Not available,,68.0,medium,2026-06-01T05:13:43.645608
+Lawrence Station,Lawrence Station,14725,52,52 - Lawrence West,Inbound,Not available,,67.0,medium,2026-06-01T05:13:46.598498
+Lawrence Station,Lawrence Station,14725,52,52 - Lawrence West,Outbound,Not available,,67.0,medium,2026-06-01T05:13:46.598498
+Lawrence West Station,Lawrence West Station,12202,352,352 - Lawrence West,Outbound,Not available,,76.0,high,2026-06-01T05:12:44.732153
+Lawrence West Station,Lawrence West Station,12202,52,52 - Lawrence West,Outbound,Not available,,76.0,high,2026-06-01T05:12:44.732153
+Lawrence West Station,Lawrence West Station,12202,952,952 - Lawrence West Express,Outbound,Not available,,76.0,high,2026-06-01T05:12:44.732153
+Leslie Station,Leslie Station,14620,51,51 - Leslie,Inbound,Not available,,76.0,high,2026-06-01T05:12:50.777831
+Leslie Station,Leslie Station,14620,51,51 - Leslie,Outbound,Not available,,76.0,high,2026-06-01T05:12:50.777831
+Main Street Station,Main Street Station,14736,23,23 - Dawes,Inbound,Not available,,67.0,medium,2026-06-01T05:13:49.538176
+Main Street Station,Main Street Station,14736,23,23 - Dawes,Outbound,Not available,,67.0,medium,2026-06-01T05:13:49.538176
+Old Mill Station,Old Mill Station,14742,66,66 - Prince Edward,Inbound,Not available,,69.0,medium,2026-06-01T05:13:52.673045
+Old Mill Station,Old Mill Station,14742,66,66 - Prince Edward,Outbound,Not available,,69.0,medium,2026-06-01T05:13:52.673045
+Ossington Station,Ossington Station,14743,63,63 - Ossington,Inbound,Not available,,76.0,high,2026-06-01T05:13:55.587297
+Pioneer Village Station,Pioneer Village Station,15571,106,106 - Sentinel,Inbound,Not available,,90.0,high,2026-06-01T05:14:38.147617
+Pioneer Village Station,Pioneer Village Station,15571,106,106 - Sentinel,Outbound,Not available,,90.0,high,2026-06-01T05:14:38.147617
+Rosedale Station,Rosedale Station,14750,82,82 - Rosedale,Inbound,Not available,,76.0,high,2026-06-01T05:13:58.219744
+Rosedale Station,Rosedale Station,14750,82,82 - Rosedale,Outbound,Not available,,76.0,high,2026-06-01T05:13:58.219744
+Royal York Station,Royal York Station,14751,73,73 - Royal York,Inbound,Not available,,88.0,high,2026-06-01T05:14:01.061260
+Royal York Station,Royal York Station,14751,73,73 - Royal York,Outbound,Not available,,88.0,high,2026-06-01T05:14:01.061260
+Runnymede Station,Runnymede Station,14755,71,71 - Runnymede,Inbound,Not available,,76.0,high,2026-06-01T05:14:03.950123
+Runnymede Station,Runnymede Station,14755,71,71 - Runnymede,Outbound,Not available,,76.0,high,2026-06-01T05:14:03.950123
+Sheppard West Station,Sheppard West Station,14651,84,84 - Sheppard West,Outbound,Not available,,68.0,medium,2026-06-01T05:13:12.951154
+Sheppard-Yonge Station,Sheppard-Yonge Station,14771,98,98 - Willowdale-Senlac,Inbound,Not available,,69.0,medium,2026-06-01T05:14:06.667178
+Sheppard-Yonge Station,Sheppard-Yonge Station,14771,98,98 - Willowdale-Senlac,Outbound,Not available,,69.0,medium,2026-06-01T05:14:06.667178
+Spadina Station,Spadina Station,14777,127,127 - Davenport,Inbound,Not available,,68.0,medium,2026-06-01T05:14:09.426318
+Spadina Station,Spadina Station,14777,127,127 - Davenport,Outbound,Not available,,68.0,medium,2026-06-01T05:14:09.426318
+St Clair West Station,St Clair West Station,14779,90,90 - Vaughan,Inbound,Not available,,68.0,medium,2026-06-01T05:14:12.222505
+St Clair West Station,St Clair West Station,14779,90,90 - Vaughan,Outbound,Not available,,68.0,medium,2026-06-01T05:14:12.222505
+St George Station,St George Station,14784,26,26 - Dupont,Inbound,Not available,,69.0,medium,2026-06-01T05:14:15.916713
+St George Station,St George Station,14784,26,26 - Dupont,Outbound,Not available,,69.0,medium,2026-06-01T05:14:15.916713
+Victoria Park Station,Victoria Park Station,14786,300,300 - Bloor-Danforth,Inbound,Not available,,76.0,high,2026-06-01T05:14:18.977725
+Victoria Park Station,Victoria Park Station,14786,300,300 - Bloor-Danforth,Outbound,Not available,,76.0,high,2026-06-01T05:14:18.977725
+Victoria Park Station,Victoria Park Station,14786,67,67 - Pharmacy,Inbound,Not available,,76.0,high,2026-06-01T05:14:18.977725
+Victoria Park Station,Victoria Park Station,14786,67,67 - Pharmacy,Outbound,Not available,,76.0,high,2026-06-01T05:14:18.977725
+Warden Station,Warden Station,16636,117,117 - Birchmount South,Outbound,Not available,,65.0,medium,2026-06-01T05:14:45.395144
+Warden Station,Warden Station,16636,69,69 - Warden South,Inbound,Not available,,65.0,medium,2026-06-01T05:14:45.395144
+Wellesley Station,Wellesley Station,14797,94,94 - Wellesley,Inbound,Not available,,76.0,high,2026-06-01T05:14:21.577901
+Wilson Station,Wilson Station,14799,29,29 - Dufferin,Inbound,Not available,,67.0,medium,2026-06-01T05:14:24.379382
+Wilson Station,Wilson Station,14799,29,29 - Dufferin,Outbound,Not available,,67.0,medium,2026-06-01T05:14:24.379382
+Wilson Station,Wilson Station,14799,329,329 - Dufferin,Inbound,Not available,,67.0,medium,2026-06-01T05:14:24.379382
+Wilson Station,Wilson Station,14799,329,329 - Dufferin,Outbound,Not available,,67.0,medium,2026-06-01T05:14:24.379382
+Wilson Station,Wilson Station,14799,929,929 - Dufferin Express,Inbound,Not available,,67.0,medium,2026-06-01T05:14:24.379382
+Wilson Station,Wilson Station,14799,929,929 - Dufferin Express,Outbound,Not available,,67.0,medium,2026-06-01T05:14:24.379382
+Woodbine Station,Woodbine Station,14804,91,91 - Woodbine,Inbound,Not available,,66.0,medium,2026-06-01T05:14:28.028580
+Woodbine Station,Woodbine Station,14804,91,91 - Woodbine,Outbound,Not available,,66.0,medium,2026-06-01T05:14:28.028580
+Woodbine Station,Woodbine Station,14804,93,93 - Parkview Hills,Inbound,Not available,,66.0,medium,2026-06-01T05:14:28.028580
+Woodbine Station,Woodbine Station,14804,93,93 - Parkview Hills,Outbound,Not available,,66.0,medium,2026-06-01T05:14:28.028580
+York Mills Station,York Mills Station,14806,996,996 - Wilson Express,Inbound,Not available,,66.0,medium,2026-06-01T05:14:30.985050

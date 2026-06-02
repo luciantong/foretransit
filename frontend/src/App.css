@@ -1688,6 +1688,30 @@ body.theme-dark .factor-item--negative .factor-score {
 .minimal-shell .next-arrivals-strip {
   margin-top: 0.42rem;
 }
+.minimal-shell .bus-station-summary {
+  margin-bottom: 0.52rem;
+  padding-bottom: 0.42rem;
+  border-bottom: 1.5px solid rgba(19, 23, 23, 0.42);
+}
+.minimal-shell .bus-station-summary-title {
+  margin: 0;
+  font-size: 0.94rem;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: #000000;
+}
+.minimal-shell .bus-station-summary-routes,
+.minimal-shell .bus-station-summary-directions {
+  margin: 0.18rem 0 0;
+  font-size: 14.6px;
+  letter-spacing: 0.09em;
+  line-height: 1.15;
+  color: #000000;
+  text-transform: uppercase;
+}
+.minimal-shell .bus-station-summary-directions {
+  color: rgba(0, 0, 0, 0.75);
+}
 .minimal-shell .next-arrivals-title {
   margin: 0;
   font-size: 0.94rem;

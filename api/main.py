@@ -27,7 +27,17 @@ except Exception as e:
     logging.exception("Failed to load GTFS stops file; continuing with empty stops dataframe")
     stops_df = pd.DataFrame(columns=["stop_id", "stop_name", "stop_lat", "stop_lon"])
 
+try:
+    stop_times_df = pd.read_csv(
+        f"{GTFS_PATH}/stop_times.txt",
+        usecols=["trip_id", "stop_id", "arrival_time"],
+    )
+except Exception:
+    stop_times_df = pd.DataFrame(columns=["trip_id", "stop_id", "arrival_time"])
+
 METRO_STATIONS_CSV_PATH = "data/processed/toronto_subway_parent_stations_matched.csv"
+STATION_BUS_ETA_CSV_PATH = "data/processed/station_bus_eta_confidence.csv"
+BUS_STATION_SUMMARY_CSV_PATH = "data/processed/bus_station_routes_summary.csv"
 
 
 def load_metro_station_catalog() -> pd.DataFrame:
@@ -54,12 +64,68 @@ METRO_LINE_BY_STOP_ID = {
 }
 
 
+def load_station_bus_eta_catalog() -> pd.DataFrame:
+    if not os.path.exists(STATION_BUS_ETA_CSV_PATH):
+        return pd.DataFrame(columns=[
+            "station_name",
+            "stop_name",
+            "stop_id",
+            "bus_route_number",
+            "bus_route_name",
+            "direction",
+            "estimated_arrival",
+            "estimated_arrival_in_min",
+            "prediction_score_100",
+            "prediction_confidence",
+            "forecast_generated_at",
+        ])
+
+    df = pd.read_csv(STATION_BUS_ETA_CSV_PATH, dtype=str).fillna("")
+    if "stop_id" not in df.columns:
+        return pd.DataFrame(columns=["stop_id"])
+
+    df["stop_id"] = df["stop_id"].astype(str)
+    return df
+
+
+station_bus_eta_df = load_station_bus_eta_catalog()
+
+
+def load_bus_station_summary_catalog() -> pd.DataFrame:
+    if not os.path.exists(BUS_STATION_SUMMARY_CSV_PATH):
+        return pd.DataFrame(columns=[
+            "stop_id",
+            "stop_name",
+            "bus_route_numbers",
+            "bus_route_names",
+            "directions",
+            "route_direction_pairs",
+            "eastbound_southbound_routes",
+            "westbound_northbound_routes",
+            "route_count",
+        ])
+
+    df = pd.read_csv(BUS_STATION_SUMMARY_CSV_PATH, dtype=str).fillna("")
+    if "stop_id" not in df.columns:
+        return pd.DataFrame(columns=["stop_id"])
+
+    df["stop_id"] = df["stop_id"].astype(str)
+    return df
+
+
+bus_station_summary_df = load_bus_station_summary_catalog()
+
+
 def infer_stop_mode(stop_name: str) -> str:
     name = str(stop_name or "").strip().lower()
     # GTFS stop metadata in this project does not include reliable parent_station/location_type,
     # so use station naming patterns to surface rail stops on the map.
     rail_tokens = [" station", "station ", " station -", " subway", "rt station"]
     return "railway" if any(token in name for token in rail_tokens) else "bus"
+
+
+def _split_summary_field(value: str) -> list[str]:
+    return [part.strip() for part in str(value or "").split(";") if part.strip()]
 
 @api.get("/vehicles/live")
 def live_vehicles():
@@ -125,6 +191,80 @@ def get_metro_stations():
     stops["mode"] = "railway"
     stops["is_parent_station"] = True
     return {"stops": stops.to_dict(orient="records")}
+
+
+@api.get("/station/{stop_id}/next-arrivals")
+def station_next_arrivals(stop_id: str, limit: int = Query(default=6, ge=1, le=25)):
+    if station_bus_eta_df.empty:
+        return {"rows": []}
+
+    rows = station_bus_eta_df[station_bus_eta_df["stop_id"] == str(stop_id)].copy()
+    if rows.empty:
+        return {"rows": []}
+
+    preferred_cols = [
+        "station_name",
+        "stop_name",
+        "stop_id",
+        "bus_route_number",
+        "bus_route_name",
+        "direction",
+        "estimated_arrival",
+        "estimated_arrival_in_min",
+        "prediction_score_100",
+        "prediction_confidence",
+        "forecast_generated_at",
+    ]
+
+    existing = [col for col in preferred_cols if col in rows.columns]
+    rows = rows[existing].head(limit)
+
+    forecast_data = get_station_forecast(stop_id)
+    base_eta = forecast_data.get("current", {}).get("estimated_arrival_in_min")
+    if not isinstance(base_eta, (int, float)):
+        base_eta = None
+
+    bus_gap = forecast_data.get("by_mode", {}).get("bus", {}).get("gap_min")
+    if not isinstance(bus_gap, (int, float)) or bus_gap <= 0:
+        bus_gap = 4
+
+    resolved_rows = []
+    for idx, (_, row) in enumerate(rows.iterrows()):
+        record = row.to_dict()
+        eta_raw = str(record.get("estimated_arrival_in_min", "")).strip()
+        if not eta_raw:
+            fallback_base = base_eta if base_eta is not None else 5
+            record["estimated_arrival_in_min"] = max(0, int(round(fallback_base + idx * bus_gap)))
+            record["estimated_arrival"] = f"{record['estimated_arrival_in_min']} min"
+
+        resolved_rows.append(record)
+
+    return {"rows": resolved_rows}
+
+
+@api.get("/station/{stop_id}/bus-summary")
+def station_bus_summary(stop_id: str):
+    if bus_station_summary_df.empty:
+        return {"summary": None}
+
+    rows = bus_station_summary_df[bus_station_summary_df["stop_id"] == str(stop_id)].copy()
+    if rows.empty:
+        return {"summary": None}
+
+    row = rows.iloc[0].to_dict()
+    return {
+        "summary": {
+            "stop_id": str(row.get("stop_id", stop_id)),
+            "stop_name": row.get("stop_name", ""),
+            "bus_route_numbers": _split_summary_field(row.get("bus_route_numbers", "")),
+            "bus_route_names": _split_summary_field(row.get("bus_route_names", "")),
+            "directions": _split_summary_field(row.get("directions", "")),
+            "route_direction_pairs": _split_summary_field(row.get("route_direction_pairs", "")),
+            "eastbound_southbound_routes": _split_summary_field(row.get("eastbound_southbound_routes", "")),
+            "westbound_northbound_routes": _split_summary_field(row.get("westbound_northbound_routes", "")),
+            "route_count": int(float(row.get("route_count", 0) or 0)),
+        }
+    }
 
 # ─── Station Forecast ─────────────────────────
 @api.get("/station/{stop_id}")
@@ -219,9 +359,11 @@ app.include_router(api)
 
 # ─── Serve built frontend (production) ────────────────────────────────────
 _frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.isdir(_frontend_dist):
-    app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
+_frontend_assets = os.path.join(_frontend_dist, "assets")
+_frontend_index = os.path.join(_frontend_dist, "index.html")
+if os.path.isdir(_frontend_dist) and os.path.isdir(_frontend_assets) and os.path.isfile(_frontend_index):
+    app.mount("/assets", StaticFiles(directory=_frontend_assets), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def serve_spa(full_path: str):
-        return FileResponse(os.path.join(_frontend_dist, "index.html"))
+        return FileResponse(_frontend_index)
