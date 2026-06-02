@@ -237,18 +237,36 @@ function factorBadgeLabel(factor) {
   return value || 'loading'
 }
 
-function directionLabelFromId(directionId) {
+function directionLabelFromId(directionId, routeId, routeDirectionMap) {
+  const routeMap = routeDirectionMap?.[String(routeId || '')]
+  if (routeMap) {
+    const label = routeMap[String(directionId)]
+    if (label) return label
+  }
+  // Generic fallback when route not in map
   const parsed = Number(directionId)
-  if (parsed === 0) {
-    return 'EASTBOUND / SOUTHBOUND'
-  }
-  if (parsed === 1) {
-    return 'WESTBOUND / NORTHBOUND'
-  }
+  if (parsed === 0) return 'INBOUND'
+  if (parsed === 1) return 'OUTBOUND'
   return 'DIRECTION TBA'
 }
 
-function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
+function normalizeDirectionLabel(direction) {
+  const d = String(direction || '').trim()
+  if (!d) {
+    return 'DIRECTION TBA'
+  }
+  const lower = d.toLowerCase()
+  if (lower === 'inbound') {
+    return 'INBOUND'
+  }
+  if (lower === 'outbound') {
+    return 'OUTBOUND'
+  }
+  // Already a resolved compass/headsign label — pass through as-is
+  return d.toUpperCase()
+}
+
+function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore, routeDirectionMap) {
   const confidence = compactConfidence(winnerScore).toUpperCase()
   const byMode = forecastData?.by_mode
   const dominantMode = String(forecastData?.current?.dominant_mode || '').toLowerCase()
@@ -274,7 +292,7 @@ function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
     if (!routeId) {
       continue
     }
-    const directionLabel = directionLabelFromId(vehicle?.direction_id)
+    const directionLabel = directionLabelFromId(vehicle?.direction_id, routeId, routeDirectionMap)
     const dedupeKey = `${routeId}::${directionLabel}`
     if (seen.has(dedupeKey)) {
       continue
@@ -293,13 +311,6 @@ function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
       ? '(STREETCAR ROUTE)'
       : '(BUS ROUTE)'
 
-  while (rows.length < 3) {
-    rows.push({
-      routeLabel: fallbackLabel,
-      directionLabel: 'WESTBOUND / SOUTHBOUND',
-    })
-  }
-
   const gapMinRaw = Number(byMode?.[activeMode || 'bus']?.gap_min)
   const gapMin = Number.isFinite(gapMinRaw) && gapMinRaw > 0 ? gapMinRaw : 4
   const baseEta = Number.isFinite(nextArrivalMins) ? Number(nextArrivalMins) : null
@@ -309,6 +320,105 @@ function buildNextArrivalRows(forecastData, nextArrivalMins, winnerScore) {
     etaLabel: baseEta === null ? '--' : String(Math.max(0, Math.round(baseEta + idx * gapMin))),
     statusLabel: confidence === 'LOADING' ? 'TBD' : confidence,
   }))
+}
+
+function buildNextArrivalRowsFromCsv(rows, winnerScore, fallbackNextArrivalMins, fallbackGapMin = 4) {
+  const fallbackConfidence = compactConfidence(winnerScore).toUpperCase()
+  const baseEta = Number.isFinite(fallbackNextArrivalMins) ? Number(fallbackNextArrivalMins) : 5
+  const gapMin = Number.isFinite(fallbackGapMin) && fallbackGapMin > 0 ? Number(fallbackGapMin) : 4
+  const mapped = (Array.isArray(rows) ? rows : [])
+    .map((row, index) => {
+      const routeNumber = String(row?.bus_route_number || '').trim()
+      const routeName = String(row?.bus_route_name || '').trim()
+      const routeLabel = routeNumber || routeName || '(BUS ROUTE)'
+
+      const etaMinRaw = Number(row?.estimated_arrival_in_min)
+      let etaLabel = String(Math.max(0, Math.round(baseEta + index * gapMin)))
+      if (Number.isFinite(etaMinRaw)) {
+        etaLabel = String(Math.max(0, Math.round(etaMinRaw)))
+      } else if (String(row?.estimated_arrival || '').trim()) {
+        etaLabel = String(row.estimated_arrival).trim().toUpperCase()
+      }
+
+      const confidenceRaw = String(row?.prediction_confidence || '').trim().toUpperCase()
+      const statusLabel = confidenceRaw || (fallbackConfidence === 'LOADING' ? 'TBD' : fallbackConfidence)
+
+      return {
+        routeLabel,
+        directionLabel: normalizeDirectionLabel(row?.direction),
+        etaLabel,
+        statusLabel,
+      }
+    })
+    .slice(0, 8)
+
+  return mapped
+}
+
+function buildNextArrivalRowsFromSummary(summary, winnerScore, fallbackNextArrivalMins, fallbackGapMin = 4) {
+  const fallbackConfidence = compactConfidence(winnerScore).toUpperCase()
+  const baseEta = Number.isFinite(fallbackNextArrivalMins) ? Number(fallbackNextArrivalMins) : 5
+  const gapMin = Number.isFinite(fallbackGapMin) && fallbackGapMin > 0 ? Number(fallbackGapMin) : 4
+
+  const routeNumbers = Array.isArray(summary?.bus_route_numbers) ? summary.bus_route_numbers : []
+  const routeDirectionPairs = Array.isArray(summary?.route_direction_pairs) ? summary.route_direction_pairs : []
+
+  const mapped = []
+
+  if (routeDirectionPairs.length > 0) {
+    routeDirectionPairs.forEach((pair, index) => {
+      const [routeToken, directionToken] = String(pair || '').split(':')
+      const routeLabel = String(routeToken || '').trim() || '(BUS ROUTE)'
+      const directionLabel = normalizeDirectionLabel(directionToken)
+      mapped.push({
+        routeLabel,
+        directionLabel,
+        etaLabel: String(Math.max(0, Math.round(baseEta + index * gapMin))),
+        statusLabel: fallbackConfidence === 'LOADING' ? 'TBD' : fallbackConfidence,
+      })
+    })
+  } else {
+    routeNumbers.forEach((route, index) => {
+      mapped.push({
+        routeLabel: String(route || '').trim() || '(BUS ROUTE)',
+        directionLabel: 'DIRECTION TBA',
+        etaLabel: String(Math.max(0, Math.round(baseEta + index * gapMin))),
+        statusLabel: fallbackConfidence === 'LOADING' ? 'TBD' : fallbackConfidence,
+      })
+    })
+  }
+
+  return mapped.slice(0, 8)
+}
+
+function normalizeStopNameForMatch(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function findSummaryByStopName(summaryByStopId, stopName) {
+  if (!summaryByStopId || typeof summaryByStopId !== 'object') {
+    return null
+  }
+
+  const target = normalizeStopNameForMatch(stopName)
+  if (!target) {
+    return null
+  }
+
+  const summaries = Object.values(summaryByStopId)
+  const exact = summaries.find((summary) => normalizeStopNameForMatch(summary?.stop_name) === target)
+  if (exact) {
+    return exact
+  }
+
+  const fuzzy = summaries.find((summary) => {
+    const candidate = normalizeStopNameForMatch(summary?.stop_name)
+    return candidate.includes(target) || target.includes(candidate)
+  })
+  return fuzzy || null
 }
 
 function serviceStatusFromScore(score) {
@@ -928,9 +1038,51 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [results, setResults] = useState({ loading: false, error: '', items: [] })
   const [forecast, setForecast] = useState({ loading: false, error: '', data: null })
+  const [busStationSummary, setBusStationSummary] = useState({ loading: false, error: '', data: null })
+  const [localBusSummaryByStopId, setLocalBusSummaryByStopId] = useState({})
+  const [routeDirectionMap, setRouteDirectionMap] = useState({})
+  const [nextArrivalsDoc, setNextArrivalsDoc] = useState({ loading: false, error: '', items: [] })
   const [now, setNow] = useState(() => new Date())
   const [liveWeather, setLiveWeather] = useState({ loading: true, error: '', data: null })
   const searchRef = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLocalSummary() {
+      try {
+        const res = await fetch('/bus_station_routes_summary.json', { headers: { Accept: 'application/json' } })
+        if (!res.ok) {
+          return
+        }
+        const data = await res.json()
+        if (!cancelled && data && typeof data === 'object') {
+          setLocalBusSummaryByStopId(data)
+        }
+      } catch {
+        // Local summary fallback is optional.
+      }
+    }
+
+    async function loadRouteDirectionMap() {
+      try {
+        const res = await fetch('/route_direction_map.json', { headers: { Accept: 'application/json' } })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && data && typeof data === 'object') {
+          setRouteDirectionMap(data)
+        }
+      } catch {
+        // optional
+      }
+    }
+
+    loadLocalSummary()
+    loadRouteDirectionMap()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (selectedStop?.stop_name) {
@@ -1043,6 +1195,8 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
     setQuery(stop.stop_name)
     setDropdownOpen(false)
     setForecast({ loading: true, error: '', data: null })
+    setBusStationSummary({ loading: true, error: '', data: null })
+    setNextArrivalsDoc({ loading: true, error: '', items: [] })
 
     try {
       const data = await fetchJson(`/station/${encodeURIComponent(stop.stop_id)}`)
@@ -1050,12 +1204,44 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
         throw new Error(data.error)
       }
       setForecast({ loading: false, error: '', data })
+
+      try {
+        const summaryData = await fetchJson(`/station/${encodeURIComponent(stop.stop_id)}/bus-summary`)
+        setBusStationSummary({
+          loading: false,
+          error: '',
+          data: summaryData?.summary || null,
+        })
+      } catch (summaryError) {
+        setBusStationSummary({
+          loading: false,
+          error: describeFetchError(summaryError, '/station/{stop_id}/bus-summary'),
+          data: null,
+        })
+      }
+
+      try {
+        const nextData = await fetchJson(`/station/${encodeURIComponent(stop.stop_id)}/next-arrivals?limit=6`)
+        setNextArrivalsDoc({
+          loading: false,
+          error: '',
+          items: Array.isArray(nextData?.rows) ? nextData.rows : [],
+        })
+      } catch (nextError) {
+        setNextArrivalsDoc({
+          loading: false,
+          error: describeFetchError(nextError, '/station/{stop_id}/next-arrivals'),
+          items: [],
+        })
+      }
     } catch (error) {
       setForecast({
         loading: false,
         error: describeFetchError(error, '/station/{stop_id}'),
         data: null,
       })
+      setBusStationSummary({ loading: false, error: '', data: null })
+      setNextArrivalsDoc({ loading: false, error: '', items: [] })
     }
   }
 
@@ -1082,9 +1268,34 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
   const liveTempF = typeof liveTemp === 'number' ? Math.round((liveTemp * 9) / 5 + 32) : null
   const liveWindMph = typeof liveWind === 'number' ? Math.round(liveWind * 0.621371) : null
   const nextVehicleLine = typeof nextArrivalMins === 'number' ? `${nextArrivalMins} MINUTES` : String(nextArrival || 'loading').toUpperCase()
+  const summaryData = useMemo(() => {
+    if (busStationSummary.data) {
+      return busStationSummary.data
+    }
+
+    const stopIdMatch = localBusSummaryByStopId[String(selectedStop?.stop_id || '')]
+    if (stopIdMatch) {
+      return stopIdMatch
+    }
+
+    return findSummaryByStopName(localBusSummaryByStopId, selectedStop?.stop_name)
+  }, [busStationSummary.data, localBusSummaryByStopId, selectedStop?.stop_id, selectedStop?.stop_name])
   const nextArrivalRows = useMemo(
-    () => buildNextArrivalRows(forecast.data, nextArrivalMins, stationScore),
-    [forecast.data, nextArrivalMins, stationScore],
+    () => {
+      const busGapMinRaw = Number(forecast.data?.by_mode?.bus?.gap_min)
+      const busGapMin = Number.isFinite(busGapMinRaw) && busGapMinRaw > 0 ? busGapMinRaw : 4
+
+      if (nextArrivalsDoc.items.length > 0) {
+        return buildNextArrivalRowsFromCsv(nextArrivalsDoc.items, stationScore, nextArrivalMins, busGapMin)
+      }
+
+      if (summaryData) {
+        return buildNextArrivalRowsFromSummary(summaryData, stationScore, nextArrivalMins, busGapMin)
+      }
+
+      return buildNextArrivalRows(forecast.data, nextArrivalMins, stationScore, routeDirectionMap)
+    },
+    [forecast.data, nextArrivalMins, stationScore, nextArrivalsDoc.items, summaryData, routeDirectionMap],
   )
 
   return (
@@ -1199,6 +1410,17 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
           </div>
 
           <div className="next-arrivals-strip" aria-live="polite">
+            {summaryData ? (
+              <div className="bus-station-summary" aria-label="bus routes and directions">
+                <p className="bus-station-summary-title">served by...</p>
+                <p className="bus-station-summary-routes">
+                  {summaryData.bus_route_numbers.join(' / ')}
+                </p>
+                <p className="bus-station-summary-directions">
+                  {summaryData.directions.join(' / ')}
+                </p>
+              </div>
+            ) : null}
             <p className="next-arrivals-title">next arrivals...</p>
             <div className="next-arrivals-list" role="list">
               {nextArrivalRows.map((row, idx) => (
