@@ -138,7 +138,7 @@ function colorByScore(score) {
   if (score < 50) {
     return '#cc0000'
   }
-  if (score < 90) {
+  if (score < 80) {
     return '#cca300'
   }
   return '#1a573c'
@@ -425,7 +425,7 @@ function serviceStatusFromScore(score) {
   if (typeof score !== 'number' || !Number.isFinite(score)) {
     return 'Unknown'
   }
-  if (score >= 90) {
+  if (score >= 80) {
     return 'Optimized'
   }
   if (score >= 70) {
@@ -441,7 +441,7 @@ function adviceFromScore(score) {
   if (typeof score !== 'number' || !Number.isFinite(score)) {
     return 'loading.'
   }
-  if (score >= 90) {
+  if (score >= 80) {
     return 'Service is running on time. No need to rush.'
   }
   if (score >= 50) {
@@ -558,7 +558,7 @@ function normalizeScoreFromForecast(data) {
 
   const label = String(data?.current?.label || '').toLowerCase()
   if (label === 'on_time') {
-    return 90
+    return 80
   }
   if (label === 'minor') {
     return 68
@@ -575,6 +575,35 @@ function normalizeScoreFromForecast(data) {
 
 function normalizeStopsPayload(data) {
   return Array.isArray(data?.stops) ? data.stops : []
+}
+
+function mergeStopsWithMetroCatalog(baseStops, metroStops) {
+  const mergedByStopId = new Map()
+
+  // Seed with base stops first.
+  for (const stop of baseStops) {
+    const stopId = String(stop?.stop_id || '').trim()
+    if (!stopId) {
+      continue
+    }
+    mergedByStopId.set(stopId, stop)
+  }
+
+  // Overlay metro catalog so metro entries are always present and authoritative.
+  for (const stop of metroStops) {
+    const stopId = String(stop?.stop_id || '').trim()
+    if (!stopId) {
+      continue
+    }
+    mergedByStopId.set(stopId, {
+      ...mergedByStopId.get(stopId),
+      ...stop,
+      mode: 'railway',
+      is_parent_station: true,
+    })
+  }
+
+  return Array.from(mergedByStopId.values())
 }
 
 function normalizeBikeStationsPayload(data) {
@@ -687,15 +716,21 @@ function LandingMap({ selectedStop, onSelectStop, onEnterForecast }) {
     async function loadStops() {
       setStops((prev) => ({ ...prev, loading: true, error: '' }))
       try {
-        const data = await fetchJson('/stops?limit=12000')
+        const [allStopsData, metroStopsData] = await Promise.all([
+          fetchJson('/stops?limit=12000'),
+          fetchJson('/metro/stations'),
+        ])
+        const allStops = normalizeStopsPayload(allStopsData)
+        const metroStops = normalizeStopsPayload(metroStopsData)
+        const mergedStops = mergeStopsWithMetroCatalog(allStops, metroStops)
         if (!cancelled) {
-          setStops({ loading: false, error: '', items: normalizeStopsPayload(data) })
+          setStops({ loading: false, error: '', items: mergedStops })
         }
       } catch (error) {
         if (!cancelled) {
           setStops({
             loading: false,
-            error: describeFetchError(error, '/stops'),
+            error: describeFetchError(error, '/stops + /metro/stations'),
             items: [],
           })
         }
@@ -1384,8 +1419,8 @@ function ForecastDashboard({ selectedStop, onBackToMap }) {
 
               <div className="score-band-legend" aria-hidden="true">
                 <span><i className="legend-dot legend-dot--bad" />0-49</span>
-                <span><i className="legend-dot legend-dot--warn" />50-89</span>
-                <span><i className="legend-dot legend-dot--good" />90-100</span>
+                <span><i className="legend-dot legend-dot--warn" />50-79</span>
+                <span><i className="legend-dot legend-dot--good" />80-100</span>
               </div>
             </div>
 
